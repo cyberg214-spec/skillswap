@@ -321,7 +321,7 @@ export default function Sessions() {
 
                   <div className="flex gap-3">
                     {session.meetLink && (
-                      
+                      <a
                         href={session.meetLink}
                         target="_blank"
                         rel="noopener noreferrer"
