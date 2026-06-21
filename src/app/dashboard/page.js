@@ -47,6 +47,8 @@ export default function Dashboard() {
     );
   }
 
+  const avatarSrc = profile?.photoBase64 || user?.photoURL || "";
+
   return (
     <div className="min-h-screen bg-gray-50">
 
@@ -82,13 +84,31 @@ export default function Dashboard() {
             onClick={() => router.push("/leaderboard")}
             className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition"
           >
-          Leaderboard
+            🏆 Leaderboard
           </button>
-          <img
-            src={user?.photoURL}
-            alt="avatar"
-            className="w-9 h-9 rounded-full border-2 border-indigo-400 cursor-pointer"
-          />
+          <button
+            onClick={() => router.push("/edit-profile")}
+            className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition"
+          >
+            ✏️ Edit Profile
+          </button>
+
+          {avatarSrc ? (
+            <img
+              src={avatarSrc}
+              alt="avatar"
+              onClick={() => router.push("/edit-profile")}
+              className="w-9 h-9 rounded-full border-2 border-indigo-400 cursor-pointer object-cover"
+            />
+          ) : (
+            <div
+              onClick={() => router.push("/edit-profile")}
+              className="w-9 h-9 rounded-full border-2 border-indigo-400 cursor-pointer bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-sm"
+            >
+              {profile?.name?.charAt(0) || "?"}
+            </div>
+          )}
+
           <button
             onClick={handleLogout}
             className="text-sm text-red-400 hover:text-red-600 font-medium transition"
@@ -114,11 +134,18 @@ export default function Dashboard() {
               {profile?.bio || "Ready to swap some skills today?"}
             </p>
           </div>
-          <img
-            src={user?.photoURL}
-            alt="avatar"
-            className="w-20 h-20 rounded-full border-4 border-white shadow-lg"
-          />
+
+          {avatarSrc ? (
+            <img
+              src={avatarSrc}
+              alt="avatar"
+              className="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover"
+            />
+          ) : (
+            <div className="w-20 h-20 rounded-full border-4 border-white shadow-lg bg-indigo-400 flex items-center justify-center text-white font-bold text-2xl">
+              {profile?.name?.charAt(0) || "?"}
+            </div>
+          )}
         </div>
 
         {/* Stats Row */}
@@ -148,9 +175,17 @@ export default function Dashboard() {
 
           {/* Teaching */}
           <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-700 mb-3">
-              🎓 I Can Teach
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-gray-700">
+                🎓 I Can Teach
+              </h2>
+              <button
+                onClick={() => router.push("/edit-profile")}
+                className="text-xs text-indigo-500 hover:underline"
+              >
+                Edit
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2">
               {profile?.teach?.map(skill => (
                 <span
@@ -165,9 +200,17 @@ export default function Dashboard() {
 
           {/* Learning */}
           <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-700 mb-3">
-              📚 I Want to Learn
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-gray-700">
+                📚 I Want to Learn
+              </h2>
+              <button
+                onClick={() => router.push("/edit-profile")}
+                className="text-xs text-purple-500 hover:underline"
+              >
+                Edit
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2">
               {profile?.learn?.map(skill => (
                 <span
@@ -188,9 +231,9 @@ export default function Dashboard() {
             className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl p-6 text-left transition shadow-sm"
           >
             <div className="text-2xl mb-2">🔍</div>
-            <div className="font-semibold text-lg">Discover People</div>
+            <div className="font-semibold text-lg">Discover</div>
             <div className="text-indigo-200 text-sm mt-1">
-              Find people who match your skills
+              Find skill matches
             </div>
           </button>
 
@@ -199,9 +242,9 @@ export default function Dashboard() {
             className="bg-purple-600 hover:bg-purple-700 text-white rounded-2xl p-6 text-left transition shadow-sm"
           >
             <div className="text-2xl mb-2">📬</div>
-            <div className="font-semibold text-lg">My Requests</div>
+            <div className="font-semibold text-lg">Requests</div>
             <div className="text-purple-200 text-sm mt-1">
-              View incoming and sent requests
+              View your requests
             </div>
           </button>
 
@@ -210,9 +253,31 @@ export default function Dashboard() {
             className="bg-green-600 hover:bg-green-700 text-white rounded-2xl p-6 text-left transition shadow-sm"
           >
             <div className="text-2xl mb-2">💬</div>
-            <div className="font-semibold text-lg">My Chats</div>
+            <div className="font-semibold text-lg">Chats</div>
             <div className="text-green-200 text-sm mt-1">
-              Talk with your skill partners
+              Talk with partners
+            </div>
+          </button>
+
+          <button
+            onClick={() => router.push("/leaderboard")}
+            className="bg-yellow-500 hover:bg-yellow-600 text-white rounded-2xl p-6 text-left transition shadow-sm"
+          >
+            <div className="text-2xl mb-2">🏆</div>
+            <div className="font-semibold text-lg">Leaderboard</div>
+            <div className="text-yellow-100 text-sm mt-1">
+              See top contributors
+            </div>
+          </button>
+
+          <button
+            onClick={() => router.push("/edit-profile")}
+            className="bg-pink-500 hover:bg-pink-600 text-white rounded-2xl p-6 text-left transition shadow-sm"
+          >
+            <div className="text-2xl mb-2">✏️</div>
+            <div className="font-semibold text-lg">Edit Profile</div>
+            <div className="text-pink-100 text-sm mt-1">
+              Update skills & photo
             </div>
           </button>
         </div>
