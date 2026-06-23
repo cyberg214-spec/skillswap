@@ -52,6 +52,7 @@ export default function Discover() {
   const [colleges, setColleges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sentRequests, setSentRequests] = useState([]);
+  const [blockedUids, setBlockedUids] = useState([]);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
@@ -61,20 +62,29 @@ export default function Discover() {
       const myData = myDoc.data();
       setMyProfile({ ...myData, uid: firebaseUser.uid });
 
-      // Load already-sent requests so buttons show correct state on load
+      // Load already-sent requests
       const sentQuery = query(
         collection(db, "requests"),
         where("fromUid", "==", firebaseUser.uid)
       );
       const sentSnap = await getDocs(sentQuery);
-      const sentUids = sentSnap.docs.map((d) => d.data().toUid);
-      setSentRequests(sentUids);
+      setSentRequests(sentSnap.docs.map((d) => d.data().toUid));
+
+      // Load blocked users
+      const blocksQuery = query(
+        collection(db, "blocks"),
+        where("blockedBy", "==", firebaseUser.uid)
+      );
+      const blocksSnap = await getDocs(blocksQuery);
+      const blocked = blocksSnap.docs.map((d) => d.data().blockedUid);
+      setBlockedUids(blocked);
 
       const snapshot = await getDocs(collection(db, "users"));
       const allUsers = [];
       const collegeSet = new Set();
       snapshot.forEach(d => {
-        if (d.id !== firebaseUser.uid) {
+        // Skip own profile and blocked users
+        if (d.id !== firebaseUser.uid && !blocked.includes(d.id)) {
           allUsers.push({ uid: d.id, ...d.data() });
           if (d.data().college) collegeSet.add(d.data().college);
         }
@@ -82,7 +92,6 @@ export default function Discover() {
 
       setColleges(["All", ...Array.from(collegeSet)]);
 
-      // Smart match scoring
       const myLearn = myData.learning || myData.learn || [];
       const myTeach = (myData.teaching || myData.teach || []).map(t =>
         typeof t === "string" ? t : t.skill
@@ -95,10 +104,8 @@ export default function Discover() {
         const uLearnSkills = u.learning || u.learn || [];
 
         let score = 0;
-        const teachMatch = uTeachSkills.some(s => myLearn.includes(s));
-        const learnMatch = uLearnSkills.some(s => myTeach.includes(s));
-        if (teachMatch) score += 50;
-        if (learnMatch) score += 50;
+        if (uTeachSkills.some(s => myLearn.includes(s))) score += 50;
+        if (uLearnSkills.some(s => myTeach.includes(s))) score += 50;
         if (u.rating > 0) score += u.rating * 2;
         return { ...u, score, uTeachSkills, uLearnSkills };
       });
@@ -111,7 +118,6 @@ export default function Discover() {
     return () => unsubscribe();
   }, []);
 
-  // Apply all filters together
   useEffect(() => {
     let result = [...users];
 
@@ -151,7 +157,6 @@ export default function Discover() {
       createdAt: new Date().toISOString()
     });
 
-    // Notify the recipient
     await sendNotification(
       toUser.uid,
       "request_received",
@@ -184,7 +189,6 @@ export default function Discover() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Navbar */}
       <nav className="bg-white shadow-sm px-6 py-4 flex items-center justify-between">
         <div onClick={() => router.push("/dashboard")} className="text-2xl font-bold text-indigo-700 cursor-pointer">
           🔁 SkillSwap
@@ -198,13 +202,11 @@ export default function Discover() {
 
       <div className="max-w-5xl mx-auto px-4 py-10 flex flex-col gap-6">
 
-        {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Discover People 🔍</h1>
           <p className="text-gray-400 text-sm mt-1">Find people who match your skills — sorted by best match first</p>
         </div>
 
-        {/* Filters */}
         <div className="flex flex-col gap-3">
           <input
             value={search}
@@ -249,7 +251,6 @@ export default function Discover() {
           </p>
         </div>
 
-        {/* User Cards */}
         {filtered.length === 0 ? (
           <p className="text-gray-400 text-center py-20">No users found. Try a different search or filter.</p>
         ) : (
@@ -264,7 +265,6 @@ export default function Discover() {
               return (
                 <div key={user.uid} className="bg-white rounded-2xl shadow-sm p-6 flex flex-col gap-4 border border-gray-100">
 
-                  {/* Top Row */}
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg overflow-hidden flex-shrink-0">
                       {user.photoBase64 ? (
@@ -282,17 +282,11 @@ export default function Discover() {
                     </span>
                   </div>
 
-                  {/* Skills */}
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap gap-1 items-center">
                       <span className="text-xs text-gray-400 mr-1">Teaches:</span>
                       {teachItems.map(({ skill, level }) => (
-                        <span
-                          key={skill}
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            level ? LEVEL_COLORS[level] : "bg-indigo-50 text-indigo-600"
-                          }`}
-                        >
+                        <span key={skill} className={`text-xs px-2 py-0.5 rounded-full font-medium ${level ? LEVEL_COLORS[level] : "bg-indigo-50 text-indigo-600"}`}>
                           {skill}{level ? ` · ${level}` : ""}
                         </span>
                       ))}
@@ -300,27 +294,22 @@ export default function Discover() {
                     <div className="flex flex-wrap gap-1 items-center">
                       <span className="text-xs text-gray-400 mr-1">Wants:</span>
                       {(user.learning || user.learn || []).map(s => (
-                        <span key={s} className="bg-purple-50 text-purple-600 text-xs px-2 py-0.5 rounded-full">
-                          {s}
-                        </span>
+                        <span key={s} className="bg-purple-50 text-purple-600 text-xs px-2 py-0.5 rounded-full">{s}</span>
                       ))}
                     </div>
                   </div>
 
-                  {/* Bottom Row */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm text-yellow-500 font-medium">
                       {user.rating > 0 ? `⭐ ${user.rating}` : "⭐ New"}
                     </div>
                     <div className="flex gap-2">
-                      {/* View Profile button */}
                       <button
                         onClick={() => router.push(`/profile/${user.uid}`)}
                         className="px-3 py-2 rounded-xl text-sm font-medium border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition"
                       >
                         View Profile
                       </button>
-                      {/* Send Request button */}
                       <button
                         onClick={() => sendRequest(user)}
                         disabled={alreadySent}

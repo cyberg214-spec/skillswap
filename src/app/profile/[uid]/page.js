@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
   doc, getDoc, collection, query,
-  where, getDocs, addDoc
+  where, getDocs, addDoc, setDoc, deleteDoc
 } from "firebase/firestore";
 import { useRouter, useParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
@@ -20,49 +20,54 @@ export default function PublicProfile() {
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
   const [alreadyRequested, setAlreadyRequested] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => {
-      setCurrentUser(u);
-    });
+    const unsub = auth.onAuthStateChanged((u) => setCurrentUser(u));
     return () => unsub();
   }, []);
 
   useEffect(() => {
     if (!uid) return;
     async function load() {
-      // Load profile
       const userDoc = await getDoc(doc(db, "users", uid));
       if (!userDoc.exists()) { router.push("/discover"); return; }
       setProfile({ uid, ...userDoc.data() });
 
-      // Load reviews for this user
       const reviewQuery = query(
         collection(db, "reviews"),
         where("revieweeUid", "==", uid)
       );
       const reviewSnap = await getDocs(reviewQuery);
-      const reviewData = reviewSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setReviews(reviewData);
+      setReviews(reviewSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
       setLoading(false);
     }
     load();
   }, [uid, router]);
 
-  // Check if current user already sent a request
   useEffect(() => {
     if (!currentUser || !uid) return;
-    async function checkRequest() {
-      const q = query(
+    async function checkStatus() {
+      // Check if already requested
+      const reqQ = query(
         collection(db, "requests"),
         where("fromUid", "==", currentUser.uid),
         where("toUid", "==", uid)
       );
-      const snap = await getDocs(q);
-      if (!snap.empty) setAlreadyRequested(true);
+      const reqSnap = await getDocs(reqQ);
+      if (!reqSnap.empty) setAlreadyRequested(true);
+
+      // Check if blocked
+      const blockDoc = await getDoc(
+        doc(db, "blocks", `${currentUser.uid}_${uid}`)
+      );
+      if (blockDoc.exists()) setIsBlocked(true);
     }
-    checkRequest();
+    checkStatus();
   }, [currentUser, uid]);
 
   async function handleSendRequest() {
@@ -97,6 +102,49 @@ export default function PublicProfile() {
       showToast("Failed to send request", "error");
     }
     setRequesting(false);
+  }
+
+  async function handleBlock() {
+    if (!currentUser) return;
+    if (isBlocked) {
+      // Unblock
+      await deleteDoc(doc(db, "blocks", `${currentUser.uid}_${uid}`));
+      setIsBlocked(false);
+      showToast("User unblocked.");
+    } else {
+      // Block
+      await setDoc(doc(db, "blocks", `${currentUser.uid}_${uid}`), {
+        blockedBy: currentUser.uid,
+        blockedUid: uid,
+        createdAt: new Date().toISOString(),
+      });
+      setIsBlocked(true);
+      showToast("User blocked. They won't appear in your Discover.");
+    }
+  }
+
+  async function handleReport() {
+    if (!reportReason.trim()) {
+      showToast("Please select or enter a reason", "error");
+      return;
+    }
+    setReportSubmitting(true);
+    try {
+      await addDoc(collection(db, "reports"), {
+        reportedUid: uid,
+        reportedName: profile.name,
+        reporterUid: currentUser.uid,
+        reason: reportReason,
+        createdAt: new Date().toISOString(),
+        status: "pending",
+      });
+      showToast("Report submitted. Thank you! 🙏");
+      setShowReportModal(false);
+      setReportReason("");
+    } catch {
+      showToast("Failed to submit report", "error");
+    }
+    setReportSubmitting(false);
   }
 
   function getTeachSkills() {
@@ -153,17 +201,11 @@ export default function PublicProfile() {
       {/* Navbar */}
       <nav className="bg-white/10 backdrop-blur-sm border-b border-white/20 px-6 py-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <button
-            onClick={() => router.back()}
-            className="text-white/70 hover:text-white text-sm transition"
-          >
+          <button onClick={() => router.back()} className="text-white/70 hover:text-white text-sm transition">
             ← Back
           </button>
           <h1 className="text-white font-bold">👤 Profile</h1>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="text-white/70 hover:text-white text-sm transition"
-          >
+          <button onClick={() => router.push("/dashboard")} className="text-white/70 hover:text-white text-sm transition">
             Dashboard
           </button>
         </div>
@@ -174,7 +216,6 @@ export default function PublicProfile() {
         {/* Profile header */}
         <div className="bg-white/10 backdrop-blur-sm rounded-3xl p-8 border border-white/20">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-            {/* Avatar */}
             {profile.photoBase64 ? (
               <img
                 src={profile.photoBase64}
@@ -187,7 +228,6 @@ export default function PublicProfile() {
               </div>
             )}
 
-            {/* Info */}
             <div className="flex-1 text-center sm:text-left">
               <h2 className="text-white text-2xl font-bold">{profile.name}</h2>
               <p className="text-purple-300 mt-1">🏫 {profile.college}</p>
@@ -204,8 +244,8 @@ export default function PublicProfile() {
             </div>
           </div>
 
-          {/* Action button */}
-          <div className="mt-6">
+          {/* Action buttons */}
+          <div className="mt-6 flex flex-col gap-3">
             {isOwnProfile ? (
               <button
                 onClick={() => router.push("/edit-profile")}
@@ -213,18 +253,43 @@ export default function PublicProfile() {
               >
                 ✏️ Edit Your Profile
               </button>
-            ) : alreadyRequested ? (
-              <div className="w-full bg-green-500/20 text-green-300 py-3 rounded-2xl font-medium text-center border border-green-500/30">
-                ✅ Request Already Sent
-              </div>
             ) : (
-              <button
-                onClick={handleSendRequest}
-                disabled={requesting}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white py-3 rounded-2xl font-medium transition disabled:opacity-50"
-              >
-                {requesting ? "Sending..." : "🤝 Send Skill Swap Request"}
-              </button>
+              <>
+                {/* Send request */}
+                {alreadyRequested ? (
+                  <div className="w-full bg-green-500/20 text-green-300 py-3 rounded-2xl font-medium text-center border border-green-500/30">
+                    ✅ Request Already Sent
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleSendRequest}
+                    disabled={requesting}
+                    className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white py-3 rounded-2xl font-medium transition disabled:opacity-50"
+                  >
+                    {requesting ? "Sending..." : "🤝 Send Skill Swap Request"}
+                  </button>
+                )}
+
+                {/* Block & Report row */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleBlock}
+                    className={`flex-1 py-2.5 rounded-2xl text-sm font-medium transition border ${
+                      isBlocked
+                        ? "bg-white/10 text-white/60 border-white/20 hover:bg-white/20"
+                        : "bg-red-500/10 text-red-300 border-red-500/30 hover:bg-red-500/20"
+                    }`}
+                  >
+                    {isBlocked ? "🔓 Unblock User" : "🚫 Block User"}
+                  </button>
+                  <button
+                    onClick={() => setShowReportModal(true)}
+                    className="flex-1 py-2.5 rounded-2xl text-sm font-medium transition border bg-orange-500/10 text-orange-300 border-orange-500/30 hover:bg-orange-500/20"
+                  >
+                    ⚠️ Report User
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -235,10 +300,7 @@ export default function PublicProfile() {
             <h3 className="text-white font-semibold text-lg mb-4">🎓 Can Teach</h3>
             <div className="flex flex-wrap gap-2">
               {teachSkills.map((s, i) => (
-                <span
-                  key={i}
-                  className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5"
-                >
+                <span key={i} className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
                   {s.skill}
                   <span className={`text-xs px-1.5 py-0.5 rounded-full ${getLevelColor(s.level)}`}>
                     {s.level}
@@ -255,10 +317,7 @@ export default function PublicProfile() {
             <h3 className="text-white font-semibold text-lg mb-4">📚 Wants to Learn</h3>
             <div className="flex flex-wrap gap-2">
               {learnSkills.map((skill, i) => (
-                <span
-                  key={i}
-                  className="bg-pink-500/20 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-xl text-sm"
-                >
+                <span key={i} className="bg-pink-500/20 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-xl text-sm">
                   {skill}
                 </span>
               ))}
@@ -276,10 +335,7 @@ export default function PublicProfile() {
           ) : (
             <div className="space-y-4">
               {reviews.map((r) => (
-                <div
-                  key={r.id}
-                  className="bg-white/5 rounded-2xl p-4 border border-white/10"
-                >
+                <div key={r.id} className="bg-white/5 rounded-2xl p-4 border border-white/10">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-sm font-bold">
@@ -305,6 +361,56 @@ export default function PublicProfile() {
         </div>
 
       </div>
+
+      {/* Report Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center px-4">
+          <div className="bg-slate-800 rounded-3xl p-6 w-full max-w-sm border border-white/20">
+            <h3 className="text-white font-bold text-lg mb-4">⚠️ Report User</h3>
+            <p className="text-white/60 text-sm mb-4">
+              Why are you reporting <span className="text-white font-medium">{profile.name}</span>?
+            </p>
+
+            <div className="flex flex-col gap-2 mb-4">
+              {[
+                "Inappropriate behavior",
+                "Spam or fake profile",
+                "Harassment",
+                "Misleading skills",
+                "Other"
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => setReportReason(reason)}
+                  className={`text-left px-4 py-2.5 rounded-xl text-sm transition border ${
+                    reportReason === reason
+                      ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
+                      : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10"
+                  }`}
+                >
+                  {reason}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowReportModal(false); setReportReason(""); }}
+                className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2.5 rounded-xl text-sm transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReport}
+                disabled={reportSubmitting || !reportReason}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl text-sm font-medium transition disabled:opacity-50"
+              >
+                {reportSubmitting ? "Submitting..." : "Submit Report"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
