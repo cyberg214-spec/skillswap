@@ -1,223 +1,211 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
-
-const LEVEL_COLORS = {
-  Beginner: "bg-green-100 text-green-700 border-green-300",
-  Intermediate: "bg-yellow-100 text-yellow-700 border-yellow-300",
-  Expert: "bg-red-100 text-red-700 border-red-300"
-};
+import { useRouter } from "next/navigation";
+import NotificationBell from "@/components/Notifications";
 
 export default function Dashboard() {
-  const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-      if (!firebaseUser) { router.push("/"); return; }
-      setUser(firebaseUser);
-
-      const docSnap = await getDoc(doc(db, "users", firebaseUser.uid));
-      if (docSnap.exists()) {
-        setProfile(docSnap.data());
-      } else {
-        router.push("/profile-setup");
-      }
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) { router.push("/"); return; }
+      const docSnap = await getDoc(doc(db, "users", user.uid));
+      if (!docSnap.exists()) { router.push("/profile-setup"); return; }
+      setUserData({ uid: user.uid, ...docSnap.data() });
       setLoading(false);
     });
-    return () => unsubscribe();
-  }, []);
+    return () => unsub();
+  }, [router]);
 
-  async function handleLogout() {
+  async function handleSignOut() {
     await signOut(auth);
     router.push("/");
   }
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <p className="text-indigo-600 text-lg font-medium animate-pulse">
-        Loading your dashboard...
-      </p>
-    </div>
-  );
+  function getTeachSkills() {
+    const t = userData?.teaching;
+    if (!t) return [];
+    if (Array.isArray(t) && t.length > 0 && typeof t[0] === "object") return t;
+    if (Array.isArray(t)) return t.map((s) => ({ skill: s, level: "Intermediate" }));
+    return [];
+  }
 
-  const avatarSrc = profile?.photoBase64 || user?.photoURL || "";
+  function getLevelColor(level) {
+    if (level === "Expert") return "bg-red-500/20 text-red-300 border border-red-500/30";
+    if (level === "Intermediate") return "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30";
+    return "bg-green-500/20 text-green-300 border border-green-500/30";
+  }
 
-  // Handle both old (string[]) and new ({skill,level}[]) teach format
-  const teachSkills = (profile?.teach || []).map(item =>
-    typeof item === "string" ? { skill: item, level: null } : item
-  );
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-white text-xl animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  const teachSkills = getTeachSkills();
+  const learnSkills = userData?.learning || [];
+  const photo = userData?.photoBase64;
+  const initial = userData?.name?.charAt(0) || "?";
 
   return (
-    <div className="min-h-screen bg-gray-50">
-
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Navbar */}
-      <nav className="bg-white shadow-sm px-6 py-4 flex items-center justify-between">
-        <div className="text-2xl font-bold text-indigo-700">🔁 SkillSwap</div>
-        <div className="flex items-center gap-4">
-          <button onClick={() => router.push("/discover")} className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition">Discover</button>
-          <button onClick={() => router.push("/requests")} className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition">Requests</button>
-          <button onClick={() => router.push("/chat")} className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition">Chat</button>
-          <button onClick={() => router.push("/sessions")} className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition">Sessions</button>
-          <button onClick={() => router.push("/leaderboard")} className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition">🏆 Leaderboard</button>
-          <button onClick={() => router.push("/edit-profile")} className="text-sm text-gray-600 hover:text-indigo-600 font-medium transition">✏️ Edit Profile</button>
-
-          {avatarSrc ? (
-            <img
-              src={avatarSrc}
-              alt="avatar"
+      <nav className="bg-white/10 backdrop-blur-sm border-b border-white/20 px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <h1 className="text-white font-bold text-xl">⚡ SkillSwap</h1>
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+            <button
               onClick={() => router.push("/edit-profile")}
-              className="w-9 h-9 rounded-full border-2 border-indigo-400 cursor-pointer object-cover"
-            />
-          ) : (
-            <div
-              onClick={() => router.push("/edit-profile")}
-              className="w-9 h-9 rounded-full border-2 border-indigo-400 cursor-pointer bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-sm"
+              className="text-white/70 hover:text-white text-sm transition px-3 py-2 rounded-xl hover:bg-white/10"
             >
-              {profile?.name?.charAt(0) || "?"}
-            </div>
-          )}
-
-          <button onClick={handleLogout} className="text-sm text-red-400 hover:text-red-600 font-medium transition">Logout</button>
+              ✏️ Edit Profile
+            </button>
+            <button
+              onClick={handleSignOut}
+              className="text-white/70 hover:text-white text-sm transition px-3 py-2 rounded-xl hover:bg-white/10"
+            >
+              Sign Out
+            </button>
+            <button onClick={() => router.push("/edit-profile")}>
+              {photo ? (
+                <img
+                  src={photo}
+                  alt="Profile"
+                  className="w-9 h-9 rounded-full object-cover border-2 border-purple-400 hover:border-pink-400 transition"
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-sm">
+                  {initial}
+                </div>
+              )}
+            </button>
+          </div>
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-4 py-10 flex flex-col gap-8">
-
-        {/* Welcome Banner */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-8 text-white flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">
-              Hey, {profile?.name?.split(" ")[0]} 👋
-            </h1>
-            <p className="text-indigo-200 mt-1 text-sm">{profile?.college}</p>
-            <p className="mt-3 text-sm text-indigo-100 max-w-sm">
-              {profile?.bio || "Ready to swap some skills today?"}
-            </p>
-          </div>
-          {avatarSrc ? (
-            <img src={avatarSrc} alt="avatar" className="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover" />
-          ) : (
-            <div className="w-20 h-20 rounded-full border-4 border-white shadow-lg bg-indigo-400 flex items-center justify-center text-white font-bold text-2xl">
-              {profile?.name?.charAt(0) || "?"}
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* Welcome banner */}
+        <div className="bg-gradient-to-r from-purple-600/40 to-pink-600/40 backdrop-blur-sm rounded-3xl p-6 mb-8 border border-white/20">
+          <div className="flex items-center gap-4">
+            <button onClick={() => router.push("/edit-profile")}>
+              {photo ? (
+                <img
+                  src={photo}
+                  alt="Profile"
+                  className="w-16 h-16 rounded-full object-cover border-3 border-white/50 hover:border-purple-400 transition"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-2xl">
+                  {initial}
+                </div>
+              )}
+            </button>
+            <div>
+              <h2 className="text-white text-2xl font-bold">
+                Welcome back, {userData?.name?.split(" ")[0]}! 👋
+              </h2>
+              <p className="text-white/60 text-sm mt-1">
+                {userData?.college} · {teachSkills.length} skills to teach · {learnSkills.length} skills to learn
+              </p>
             </div>
-          )}
-        </div>
-
-        {/* Stats Row */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl p-6 shadow-sm flex flex-col items-center gap-1">
-            <span className="text-3xl font-bold text-indigo-600">{profile?.sessionsCompleted || 0}</span>
-            <span className="text-sm text-gray-400">Sessions Done</span>
-          </div>
-          <div className="bg-white rounded-2xl p-6 shadow-sm flex flex-col items-center gap-1">
-            <span className="text-3xl font-bold text-yellow-500">{profile?.rating || "—"}</span>
-            <span className="text-sm text-gray-400">Avg Rating</span>
-          </div>
-          <div className="bg-white rounded-2xl p-6 shadow-sm flex flex-col items-center gap-1">
-            <span className="text-3xl font-bold text-purple-500">{profile?.badges?.length || 0}</span>
-            <span className="text-sm text-gray-400">Badges Earned</span>
           </div>
         </div>
 
-        {/* Skills Section */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Quick actions */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+          {[
+            { icon: "🔍", label: "Discover", path: "/discover", color: "from-blue-500/20 to-cyan-500/20 border-blue-500/30" },
+            { icon: "🤝", label: "Requests", path: "/requests", color: "from-green-500/20 to-emerald-500/20 border-green-500/30" },
+            { icon: "💬", label: "Chat", path: "/chat", color: "from-purple-500/20 to-violet-500/20 border-purple-500/30" },
+            { icon: "📅", label: "Sessions", path: "/sessions", color: "from-orange-500/20 to-amber-500/20 border-orange-500/30" },
+            { icon: "🏆", label: "Leaderboard", path: "/leaderboard", color: "from-yellow-500/20 to-orange-500/20 border-yellow-500/30" },
+          ].map((item) => (
+            <button
+              key={item.path}
+              onClick={() => router.push(item.path)}
+              className={`bg-gradient-to-br ${item.color} backdrop-blur-sm rounded-2xl p-4 border text-center hover:scale-105 transition-all`}
+            >
+              <div className="text-3xl mb-2">{item.icon}</div>
+              <div className="text-white text-sm font-medium">{item.label}</div>
+            </button>
+          ))}
+        </div>
 
+        {/* Skills grid */}
+        <div className="grid md:grid-cols-2 gap-6">
           {/* Teaching */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-gray-700">🎓 I Can Teach</h2>
-              <button onClick={() => router.push("/edit-profile")} className="text-xs text-indigo-500 hover:underline">Edit</button>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold text-lg">🎓 I Can Teach</h3>
+              <button
+                onClick={() => router.push("/edit-profile")}
+                className="text-purple-400 text-xs hover:text-purple-300 transition"
+              >
+                Edit ✏️
+              </button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {teachSkills.map(({ skill, level }) => (
-                <span
-                  key={skill}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                    level ? LEVEL_COLORS[level] : "bg-indigo-50 text-indigo-700 border-indigo-200"
-                  }`}
-                >
-                  {skill}{level ? ` · ${level}` : ""}
-                </span>
-              ))}
-            </div>
+            {teachSkills.length === 0 ? (
+              <p className="text-white/40 text-sm">No teaching skills added yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {teachSkills.map((s, i) => (
+                  <span
+                    key={i}
+                    className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5"
+                  >
+                    {s.skill}
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${getLevelColor(s.level)}`}>
+                      {s.level}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Learning */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-gray-700">📚 I Want to Learn</h2>
-              <button onClick={() => router.push("/edit-profile")} className="text-xs text-purple-500 hover:underline">Edit</button>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold text-lg">📚 I Want to Learn</h3>
+              <button
+                onClick={() => router.push("/edit-profile")}
+                className="text-purple-400 text-xs hover:text-purple-300 transition"
+              >
+                Edit ✏️
+              </button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {(profile?.learn || []).map(skill => (
-                <span key={skill} className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm font-medium border border-purple-200">
-                  {skill}
-                </span>
-              ))}
-            </div>
+            {learnSkills.length === 0 ? (
+              <p className="text-white/40 text-sm">No learning goals added yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {learnSkills.map((skill, i) => (
+                  <span
+                    key={i}
+                    className="bg-pink-500/20 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-xl text-sm"
+                  >
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Badges */}
-        {profile?.badges?.length > 0 && (
-          <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-700 mb-3">🏅 My Badges</h2>
-            <div className="flex flex-wrap gap-2">
-              {profile.badges.map(badge => (
-                <span key={badge} className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full text-sm font-medium border border-purple-200">
-                  🏅 {badge}
-                </span>
-              ))}
-            </div>
+        {/* Bio */}
+        {userData?.bio && (
+          <div className="mt-6 bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+            <h3 className="text-white font-semibold mb-2">💬 About Me</h3>
+            <p className="text-white/70 text-sm leading-relaxed">{userData.bio}</p>
           </div>
         )}
-
-        {/* Quick Actions */}
-        <div className="grid grid-cols-3 gap-4">
-          <button onClick={() => router.push("/discover")} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl p-6 text-left transition shadow-sm">
-            <div className="text-2xl mb-2">🔍</div>
-            <div className="font-semibold text-lg">Discover</div>
-            <div className="text-indigo-200 text-sm mt-1">Find skill matches</div>
-          </button>
-
-          <button onClick={() => router.push("/requests")} className="bg-purple-600 hover:bg-purple-700 text-white rounded-2xl p-6 text-left transition shadow-sm">
-            <div className="text-2xl mb-2">📬</div>
-            <div className="font-semibold text-lg">Requests</div>
-            <div className="text-purple-200 text-sm mt-1">View your requests</div>
-          </button>
-
-          <button onClick={() => router.push("/chat")} className="bg-green-600 hover:bg-green-700 text-white rounded-2xl p-6 text-left transition shadow-sm">
-            <div className="text-2xl mb-2">💬</div>
-            <div className="font-semibold text-lg">Chats</div>
-            <div className="text-green-200 text-sm mt-1">Talk with partners</div>
-          </button>
-
-          <button onClick={() => router.push("/leaderboard")} className="bg-yellow-500 hover:bg-yellow-600 text-white rounded-2xl p-6 text-left transition shadow-sm">
-            <div className="text-2xl mb-2">🏆</div>
-            <div className="font-semibold text-lg">Leaderboard</div>
-            <div className="text-yellow-100 text-sm mt-1">See top contributors</div>
-          </button>
-
-          <button onClick={() => router.push("/sessions")} className="bg-blue-500 hover:bg-blue-600 text-white rounded-2xl p-6 text-left transition shadow-sm">
-            <div className="text-2xl mb-2">📅</div>
-            <div className="font-semibold text-lg">Sessions</div>
-            <div className="text-blue-100 text-sm mt-1">Schedule & manage</div>
-          </button>
-
-          <button onClick={() => router.push("/edit-profile")} className="bg-pink-500 hover:bg-pink-600 text-white rounded-2xl p-6 text-left transition shadow-sm">
-            <div className="text-2xl mb-2">✏️</div>
-            <div className="font-semibold text-lg">Edit Profile</div>
-            <div className="text-pink-100 text-sm mt-1">Update skills & photo</div>
-          </button>
-        </div>
-
       </div>
     </div>
   );
