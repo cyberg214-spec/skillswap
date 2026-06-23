@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import {
   collection, query, where, onSnapshot,
-  doc, updateDoc, addDoc, getDoc
+  doc, updateDoc, addDoc, deleteDoc
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/Toast";
 
 export default function Requests() {
   const router = useRouter();
+  const showToast = useToast();
   const [incoming, setIncoming] = useState([]);
   const [outgoing, setOutgoing] = useState([]);
   const [tab, setTab] = useState("incoming");
@@ -46,12 +48,10 @@ export default function Requests() {
   }, []);
 
   async function handleAccept(request) {
-    // Update request status
     await updateDoc(doc(db, "requests", request.id), {
       status: "accepted"
     });
 
-    // Create a chat room
     await addDoc(collection(db, "chats"), {
       participants: [request.fromUid, request.toUid],
       participantNames: {
@@ -62,12 +62,20 @@ export default function Requests() {
       lastMessage: "Chat started!",
       lastMessageTime: new Date().toISOString()
     });
+
+    showToast("Request accepted! Chat is now open. 💬");
   }
 
   async function handleReject(requestId) {
     await updateDoc(doc(db, "requests", requestId), {
       status: "rejected"
     });
+    showToast("Request rejected.", "error");
+  }
+
+  async function handleCancel(requestId) {
+    await deleteDoc(doc(db, "requests", requestId));
+    showToast("Request cancelled successfully.");
   }
 
   function StatusBadge({ status }) {
@@ -237,14 +245,24 @@ export default function Requests() {
                     </div>
                   </div>
 
-                  {req.status === "accepted" && (
-                    <button
-                      onClick={() => router.push("/chat")}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition"
-                    >
-                      💬 Open Chat
-                    </button>
-                  )}
+                  <div className="flex gap-2">
+                    {req.status === "accepted" && (
+                      <button
+                        onClick={() => router.push("/chat")}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition"
+                      >
+                        💬 Open Chat
+                      </button>
+                    )}
+                    {req.status === "pending" && (
+                      <button
+                        onClick={() => handleCancel(req.id)}
+                        className="px-4 py-2 bg-red-50 text-red-500 rounded-xl text-sm font-medium hover:bg-red-100 transition"
+                      >
+                        ✕ Cancel Request
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             )}
