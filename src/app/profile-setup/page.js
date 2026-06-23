@@ -6,91 +6,96 @@ import { doc, setDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 const SKILLS_LIST = [
-  // Programming & Dev
   "Python", "JavaScript", "TypeScript", "Java", "C++", "C", "C#", "Go", "Rust",
   "React", "Next.js", "Vue.js", "Angular", "Node.js", "Express.js",
   "HTML/CSS", "Tailwind CSS", "PHP", "Swift", "Kotlin", "Flutter", "React Native",
   "SQL", "MongoDB", "Firebase", "Git & GitHub", "Docker", "DevOps", "Linux",
-
-  // Data & AI
   "Machine Learning", "Deep Learning", "Data Analysis", "Data Science",
   "Data Visualization", "Excel", "Power BI", "Tableau", "NLP", "Computer Vision",
   "Pandas/NumPy", "Statistics", "Prompt Engineering",
-
-  // Design & Creative
   "UI Design", "UX Design", "Figma", "Adobe Photoshop", "Adobe Illustrator",
   "Adobe Premiere Pro", "Video Editing", "Graphic Design", "3D Modeling",
   "Animation", "Canva", "Logo Design",
-
-  // Business & Marketing
   "Digital Marketing", "SEO", "Content Writing", "Copywriting",
   "Social Media Marketing", "Email Marketing", "Business Strategy",
   "Public Speaking", "Sales", "Negotiation", "Project Management",
   "Entrepreneurship", "Personal Finance", "Stock Market Investing",
-
-  // Languages
   "English Speaking", "Spanish", "French", "German", "Japanese", "Korean",
   "Mandarin Chinese", "Hindi", "Sign Language",
-
-  // Music & Arts
   "Guitar", "Piano", "Singing", "Music Production", "DJing", "Painting",
   "Sketching", "Photography", "Creative Writing", "Poetry",
-
-  // Academics
   "Mathematics", "Physics", "Chemistry", "Biology", "Algebra", "Calculus",
   "Economics", "Accounting", "Academic Writing", "Research Methods",
-
-  // Soft Skills
   "Leadership", "Time Management", "Critical Thinking", "Resume Building",
   "Interview Preparation", "Networking",
-
-  // Sports & Wellness
   "Yoga", "Meditation", "Fitness Training", "Nutrition", "Chess",
   "Cricket", "Football", "Basketball", "Badminton", "Swimming",
-
-  // Cooking & Lifestyle
   "Cooking", "Baking", "Gardening", "Interior Design", "Fashion Styling"
 ];
+
+const LEVELS = ["Beginner", "Intermediate", "Expert"];
+
+const LEVEL_COLORS = {
+  Beginner: "bg-green-100 text-green-700 border-green-300",
+  Intermediate: "bg-yellow-100 text-yellow-700 border-yellow-300",
+  Expert: "bg-red-100 text-red-700 border-red-300"
+};
 
 export default function ProfileSetup() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [college, setCollege] = useState("");
   const [bio, setBio] = useState("");
-  const [teaching, setTeaching] = useState([]);
+  // teaching is now { skillName: level } object
+  const [teaching, setTeaching] = useState({});
   const [learning, setLearning] = useState([]);
   const [customTeach, setCustomTeach] = useState("");
   const [customLearn, setCustomLearn] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  // which skill is showing the level picker
+  const [pickingLevel, setPickingLevel] = useState(null);
 
-  function toggleSkill(skill, type) {
-    if (type === "teaching") {
-      setTeaching(prev =>
-        prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
-      );
+  function handleTeachClick(skill) {
+    if (teaching[skill]) {
+      // already selected — remove it
+      const updated = { ...teaching };
+      delete updated[skill];
+      setTeaching(updated);
+      setPickingLevel(null);
     } else {
-      setLearning(prev =>
-        prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
-      );
+      // show level picker for this skill
+      setPickingLevel(skill);
     }
   }
 
-  function addCustomSkill(type) {
-    const value = type === "teaching" ? customTeach.trim() : customLearn.trim();
-    if (!value) return;
+  function selectLevel(skill, level) {
+    setTeaching(prev => ({ ...prev, [skill]: level }));
+    setPickingLevel(null);
+  }
 
-    if (type === "teaching") {
-      if (!teaching.includes(value)) setTeaching(prev => [...prev, value]);
-      setCustomTeach("");
-    } else {
-      if (!learning.includes(value)) setLearning(prev => [...prev, value]);
-      setCustomLearn("");
-    }
+  function toggleLearn(skill) {
+    setLearning(prev =>
+      prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
+    );
+  }
+
+  function addCustomTeach() {
+    const value = customTeach.trim();
+    if (!value) return;
+    setPickingLevel(value);
+    setCustomTeach("");
+  }
+
+  function addCustomLearn() {
+    const value = customLearn.trim();
+    if (!value || learning.includes(value)) return;
+    setLearning(prev => [...prev, value]);
+    setCustomLearn("");
   }
 
   async function handleSubmit() {
-    if (!name || !college || teaching.length === 0 || learning.length === 0) {
+    if (!name || !college || Object.keys(teaching).length === 0 || learning.length === 0) {
       alert("Please fill all fields and select at least one skill each.");
       return;
     }
@@ -106,7 +111,8 @@ export default function ProfileSetup() {
       photo: user.photoURL,
       photoBase64: "",
       email: user.email,
-      teach: teaching,
+      // store as array of {skill, level} for easy display
+      teach: Object.entries(teaching).map(([skill, level]) => ({ skill, level })),
       learn: learning,
       rating: 0,
       sessionsCompleted: 0,
@@ -120,6 +126,8 @@ export default function ProfileSetup() {
   const filteredSkills = SKILLS_LIST.filter(s =>
     s.toLowerCase().includes(search.toLowerCase())
   );
+
+  const teachingSkills = Object.keys(teaching);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 py-10 px-4">
@@ -172,43 +180,72 @@ export default function ProfileSetup() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Type to filter the skill list below..."
+            placeholder="Type to filter skills..."
             className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
         </div>
 
+        {/* Level Picker Popup */}
+        {pickingLevel && (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex flex-col gap-3">
+            <p className="text-sm font-medium text-indigo-700">
+              What's your level in <strong>{pickingLevel}</strong>?
+            </p>
+            <div className="flex gap-2">
+              {LEVELS.map(level => (
+                <button
+                  key={level}
+                  onClick={() => selectLevel(pickingLevel, level)}
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition ${LEVEL_COLORS[level]}`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setPickingLevel(null)}
+              className="text-xs text-gray-400 hover:text-gray-600 text-center"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {/* Skills I Can Teach */}
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium text-gray-600">
-            Skills I Can Teach 🎓
+            Skills I Can Teach 🎓 <span className="text-gray-400 font-normal">(tap a skill to set your level)</span>
           </label>
           <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 border border-gray-100 rounded-xl">
             {filteredSkills.map(skill => (
               <button
                 key={skill}
-                onClick={() => toggleSkill(skill, "teaching")}
+                onClick={() => handleTeachClick(skill)}
                 className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                  teaching.includes(skill)
+                  teaching[skill]
                     ? "bg-indigo-600 text-white border-indigo-600"
                     : "bg-white text-gray-600 border-gray-300 hover:border-indigo-400"
                 }`}
               >
                 {skill}
+                {teaching[skill] && (
+                  <span className="ml-1 text-xs opacity-80">· {teaching[skill]}</span>
+                )}
               </button>
             ))}
           </div>
 
-          {/* Custom skill add */}
+          {/* Custom teach skill */}
           <div className="flex gap-2">
             <input
               value={customTeach}
               onChange={e => setCustomTeach(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addCustomSkill("teaching")}
+              onKeyDown={e => e.key === "Enter" && addCustomTeach()}
               placeholder="Don't see it? Type your own skill..."
               className="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
             <button
-              onClick={() => addCustomSkill("teaching")}
+              onClick={addCustomTeach}
               className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-200 transition"
             >
               + Add
@@ -216,15 +253,15 @@ export default function ProfileSetup() {
           </div>
 
           {/* Selected teaching skills */}
-          {teaching.length > 0 && (
+          {teachingSkills.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-1">
-              {teaching.map(skill => (
+              {teachingSkills.map(skill => (
                 <span
                   key={skill}
-                  onClick={() => toggleSkill(skill, "teaching")}
-                  className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-medium border border-indigo-200 cursor-pointer"
+                  onClick={() => handleTeachClick(skill)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border cursor-pointer ${LEVEL_COLORS[teaching[skill]]}`}
                 >
-                  {skill} ✕
+                  {skill} · {teaching[skill]} ✕
                 </span>
               ))}
             </div>
@@ -233,14 +270,12 @@ export default function ProfileSetup() {
 
         {/* Skills I Want to Learn */}
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium text-gray-600">
-            Skills I Want to Learn 📚
-          </label>
+          <label className="text-sm font-medium text-gray-600">Skills I Want to Learn 📚</label>
           <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 border border-gray-100 rounded-xl">
             {filteredSkills.map(skill => (
               <button
                 key={skill}
-                onClick={() => toggleSkill(skill, "learning")}
+                onClick={() => toggleLearn(skill)}
                 className={`px-3 py-1.5 rounded-full text-sm border transition ${
                   learning.includes(skill)
                     ? "bg-purple-600 text-white border-purple-600"
@@ -252,30 +287,28 @@ export default function ProfileSetup() {
             ))}
           </div>
 
-          {/* Custom skill add */}
           <div className="flex gap-2">
             <input
               value={customLearn}
               onChange={e => setCustomLearn(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addCustomSkill("learning")}
+              onKeyDown={e => e.key === "Enter" && addCustomLearn()}
               placeholder="Don't see it? Type your own skill..."
               className="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
             />
             <button
-              onClick={() => addCustomSkill("learning")}
+              onClick={addCustomLearn}
               className="bg-purple-100 text-purple-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-purple-200 transition"
             >
               + Add
             </button>
           </div>
 
-          {/* Selected learning skills */}
           {learning.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-1">
               {learning.map(skill => (
                 <span
                   key={skill}
-                  onClick={() => toggleSkill(skill, "learning")}
+                  onClick={() => toggleLearn(skill)}
                   className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-xs font-medium border border-purple-200 cursor-pointer"
                 >
                   {skill} ✕
