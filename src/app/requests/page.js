@@ -8,6 +8,7 @@ import {
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
+import { sendNotification } from "@/lib/notify";
 
 export default function Requests() {
   const router = useRouter();
@@ -63,13 +64,28 @@ export default function Requests() {
       lastMessageTime: new Date().toISOString()
     });
 
+    // Notify the sender that their request was accepted
+    await sendNotification(
+      request.fromUid,
+      "request_accepted",
+      `🎉 ${auth.currentUser.displayName} accepted your skill swap request! Start chatting.`
+    );
+
     showToast("Request accepted! Chat is now open. 💬");
   }
 
-  async function handleReject(requestId) {
-    await updateDoc(doc(db, "requests", requestId), {
+  async function handleReject(request) {
+    await updateDoc(doc(db, "requests", request.id), {
       status: "rejected"
     });
+
+    // Notify the sender that their request was rejected
+    await sendNotification(
+      request.fromUid,
+      "request_rejected",
+      `${auth.currentUser.displayName} declined your skill swap request.`
+    );
+
     showToast("Request rejected.", "error");
   }
 
@@ -188,7 +204,7 @@ export default function Requests() {
                         ✓ Accept
                       </button>
                       <button
-                        onClick={() => handleReject(req.id)}
+                        onClick={() => handleReject(req)}
                         className="px-4 py-2 bg-red-100 text-red-500 rounded-xl text-sm font-medium hover:bg-red-200 transition"
                       >
                         ✕ Reject
