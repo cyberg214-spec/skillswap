@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
-import { collection, getDocs, doc, getDoc, addDoc, query, where, getDocs as getDocsQ } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, addDoc, query, where } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
+import { sendNotification } from "@/lib/notify";
 
 const LEVEL_COLORS = {
   Beginner: "bg-green-100 text-green-700",
@@ -60,12 +61,21 @@ export default function Discover() {
       const myData = myDoc.data();
       setMyProfile({ ...myData, uid: firebaseUser.uid });
 
+      // Load already-sent requests so buttons show correct state on load
+      const sentQuery = query(
+        collection(db, "requests"),
+        where("fromUid", "==", firebaseUser.uid)
+      );
+      const sentSnap = await getDocs(sentQuery);
+      const sentUids = sentSnap.docs.map((d) => d.data().toUid);
+      setSentRequests(sentUids);
+
       const snapshot = await getDocs(collection(db, "users"));
       const allUsers = [];
       const collegeSet = new Set();
       snapshot.forEach(d => {
         if (d.id !== firebaseUser.uid) {
-          allUsers.push(d.data());
+          allUsers.push({ uid: d.id, ...d.data() });
           if (d.data().college) collegeSet.add(d.data().college);
         }
       });
@@ -73,12 +83,16 @@ export default function Discover() {
       setColleges(["All", ...Array.from(collegeSet)]);
 
       // Smart match scoring
-      const myLearn = myData.learn || [];
-      const myTeach = (myData.teach || []).map(t => typeof t === "string" ? t : t.skill);
+      const myLearn = myData.learning || myData.learn || [];
+      const myTeach = (myData.teaching || myData.teach || []).map(t =>
+        typeof t === "string" ? t : t.skill
+      );
 
       const scored = allUsers.map(u => {
-        const uTeachSkills = (u.teach || []).map(t => typeof t === "string" ? t : t.skill);
-        const uLearnSkills = u.learn || [];
+        const uTeachSkills = (u.teaching || u.teach || []).map(t =>
+          typeof t === "string" ? t : t.skill
+        );
+        const uLearnSkills = u.learning || u.learn || [];
 
         let score = 0;
         const teachMatch = uTeachSkills.some(s => myLearn.includes(s));
@@ -101,7 +115,6 @@ export default function Discover() {
   useEffect(() => {
     let result = [...users];
 
-    // Search filter
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(u =>
@@ -111,12 +124,10 @@ export default function Discover() {
       );
     }
 
-    // College filter
     if (collegeFilter !== "All") {
       result = result.filter(u => u.college === collegeFilter);
     }
 
-    // Category filter
     if (categoryFilter !== "All") {
       const catSkills = CATEGORY_SKILLS[categoryFilter] || [];
       result = result.filter(u =>
@@ -139,13 +150,23 @@ export default function Discover() {
       status: "pending",
       createdAt: new Date().toISOString()
     });
+
+    // Notify the recipient
+    await sendNotification(
+      toUser.uid,
+      "request_received",
+      `🤝 ${myProfile.name} sent you a skill swap request!`
+    );
+
     setSentRequests(prev => [...prev, toUser.uid]);
     showToast(`Request sent to ${toUser.name}! 🎉`);
   }
 
   function getMatchLabel(user) {
-    const myLearn = myProfile?.learn || [];
-    const myTeach = (myProfile?.teach || []).map(t => typeof t === "string" ? t : t.skill);
+    const myLearn = myProfile?.learning || myProfile?.learn || [];
+    const myTeach = (myProfile?.teaching || myProfile?.teach || []).map(t =>
+      typeof t === "string" ? t : t.skill
+    );
     const teachMatch = user.uTeachSkills?.some(s => myLearn.includes(s));
     const learnMatch = user.uLearnSkills?.some(s => myTeach.includes(s));
     if (teachMatch && learnMatch) return { label: "Perfect Match 🔥", color: "bg-green-100 text-green-700" };
@@ -185,8 +206,6 @@ export default function Discover() {
 
         {/* Filters */}
         <div className="flex flex-col gap-3">
-
-          {/* Search */}
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -195,7 +214,6 @@ export default function Discover() {
           />
 
           <div className="flex gap-3 flex-wrap">
-            {/* College Filter */}
             <select
               value={collegeFilter}
               onChange={e => setCollegeFilter(e.target.value)}
@@ -206,7 +224,6 @@ export default function Discover() {
               ))}
             </select>
 
-            {/* Category Filter */}
             <select
               value={categoryFilter}
               onChange={e => setCategoryFilter(e.target.value)}
@@ -217,7 +234,6 @@ export default function Discover() {
               ))}
             </select>
 
-            {/* Reset */}
             {(search || collegeFilter !== "All" || categoryFilter !== "All") && (
               <button
                 onClick={() => { setSearch(""); setCollegeFilter("All"); setCategoryFilter("All"); }}
@@ -241,7 +257,7 @@ export default function Discover() {
             {filtered.map(user => {
               const match = getMatchLabel(user);
               const alreadySent = sentRequests.includes(user.uid);
-              const teachItems = (user.teach || []).map(t =>
+              const teachItems = (user.teaching || user.teach || []).map(t =>
                 typeof t === "string" ? { skill: t, level: null } : t
               );
 
@@ -283,7 +299,7 @@ export default function Discover() {
                     </div>
                     <div className="flex flex-wrap gap-1 items-center">
                       <span className="text-xs text-gray-400 mr-1">Wants:</span>
-                      {(user.learn || []).map(s => (
+                      {(user.learning || user.learn || []).map(s => (
                         <span key={s} className="bg-purple-50 text-purple-600 text-xs px-2 py-0.5 rounded-full">
                           {s}
                         </span>
@@ -292,22 +308,33 @@ export default function Discover() {
                   </div>
 
                   {/* Bottom Row */}
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="text-sm text-yellow-500 font-medium">
                       {user.rating > 0 ? `⭐ ${user.rating}` : "⭐ New"}
                     </div>
-                    <button
-                      onClick={() => sendRequest(user)}
-                      disabled={alreadySent}
-                      className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
-                        alreadySent
-                          ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                          : "bg-indigo-600 text-white hover:bg-indigo-700"
-                      }`}
-                    >
-                      {alreadySent ? "Request Sent ✓" : "Send Request"}
-                    </button>
+                    <div className="flex gap-2">
+                      {/* View Profile button */}
+                      <button
+                        onClick={() => router.push(`/profile/${user.uid}`)}
+                        className="px-3 py-2 rounded-xl text-sm font-medium border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition"
+                      >
+                        View Profile
+                      </button>
+                      {/* Send Request button */}
+                      <button
+                        onClick={() => sendRequest(user)}
+                        disabled={alreadySent}
+                        className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
+                          alreadySent
+                            ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                            : "bg-indigo-600 text-white hover:bg-indigo-700"
+                        }`}
+                      >
+                        {alreadySent ? "Sent ✓" : "Send Request"}
+                      </button>
+                    </div>
                   </div>
+
                 </div>
               );
             })}
