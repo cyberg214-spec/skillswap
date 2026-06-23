@@ -1,5 +1,6 @@
 "use client";
 
+import { useToast } from "@/components/Toast";
 import { useEffect, useState, useRef } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -57,6 +58,7 @@ const JPEG_QUALITY = 0.7;
 
 export default function EditProfile() {
   const router = useRouter();
+  const showToast = useToast();
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -97,7 +99,6 @@ export default function EditProfile() {
     return () => unsubscribe();
   }, []);
 
-  // Stop camera stream when leaving the page
   useEffect(() => {
     return () => stopCamera();
   }, []);
@@ -126,7 +127,6 @@ export default function EditProfile() {
     }
   }
 
-  // ---- Photo: Upload from device ----
   function handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -143,20 +143,18 @@ export default function EditProfile() {
     reader.readAsDataURL(file);
   }
 
-  // ---- Photo: Capture from camera ----
   async function startCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
       setCameraOpen(true);
-      // Wait for video element to mount, then attach
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
       }, 100);
     } catch (err) {
-      alert("Couldn't access camera. Please check browser permissions.");
+      showToast("Couldn't access camera. Please check browser permissions.", "error");
     }
   }
 
@@ -177,7 +175,6 @@ export default function EditProfile() {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
 
-    // Flip horizontally so the saved photo matches the mirrored preview
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -191,7 +188,6 @@ export default function EditProfile() {
     img.src = canvas.toDataURL("image/jpeg");
   }
 
-  // Resize any loaded image element down to MAX_DIMENSION and return compressed base64
   function resizeImageToBase64(img) {
     let { width, height } = img;
     if (width > height && width > MAX_DIMENSION) {
@@ -217,7 +213,7 @@ export default function EditProfile() {
 
   async function handleSave() {
     if (!name || !college || teaching.length === 0 || learning.length === 0) {
-      alert("Please fill all fields and select at least one skill each.");
+      showToast("Please fill all fields and select at least one skill each.", "error");
       return;
     }
 
@@ -231,7 +227,7 @@ export default function EditProfile() {
       photoBase64: photoPreview || ""
     });
     setSaving(false);
-    alert("Profile updated! ✅");
+    showToast("Profile updated! ✅");
     router.push("/dashboard");
   }
 
