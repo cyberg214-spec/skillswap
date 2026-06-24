@@ -70,13 +70,19 @@ export default function Discover() {
       const sentSnap = await getDocs(sentQuery);
       setSentRequests(sentSnap.docs.map((d) => d.data().toUid));
 
-      // Load blocked users
-      const blocksQuery = query(
-        collection(db, "blocks"),
-        where("blockedBy", "==", firebaseUser.uid)
-      );
-      const blocksSnap = await getDocs(blocksQuery);
-      const blocked = blocksSnap.docs.map((d) => d.data().blockedUid);
+      // Load blocked users — wrapped in try/catch so missing collection doesn't hang the page
+      let blocked = [];
+      try {
+        const blocksQuery = query(
+          collection(db, "blocks"),
+          where("blockedBy", "==", firebaseUser.uid)
+        );
+        const blocksSnap = await getDocs(blocksQuery);
+        blocked = blocksSnap.docs.map((d) => d.data().blockedUid);
+      } catch (e) {
+        // blocks collection doesn't exist yet — that's fine
+        blocked = [];
+      }
       setBlockedUids(blocked);
 
       const snapshot = await getDocs(collection(db, "users"));
@@ -305,11 +311,11 @@ export default function Discover() {
                     </div>
                     <div className="flex gap-2">
                       <button
-  onClick={() => router.push(`/profile/${user.uid}`)}
-  className="px-4 py-2 border border-indigo-300 text-indigo-600 rounded-xl text-sm font-medium hover:bg-indigo-50 transition"
->
-  View Profile
-</button>
+                        onClick={() => router.push(`/profile/${user.uid}`)}
+                        className="px-4 py-2 border border-indigo-300 text-indigo-600 rounded-xl text-sm font-medium hover:bg-indigo-50 transition"
+                      >
+                        View Profile
+                      </button>
                       <button
                         onClick={() => sendRequest(user)}
                         disabled={alreadySent}
