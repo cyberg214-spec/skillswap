@@ -52,7 +52,6 @@ export default function PublicProfile() {
   useEffect(() => {
     if (!currentUser || !uid) return;
     async function checkStatus() {
-      // Check if already requested
       const reqQ = query(
         collection(db, "requests"),
         where("fromUid", "==", currentUser.uid),
@@ -61,10 +60,7 @@ export default function PublicProfile() {
       const reqSnap = await getDocs(reqQ);
       if (!reqSnap.empty) setAlreadyRequested(true);
 
-      // Check if blocked
-      const blockDoc = await getDoc(
-        doc(db, "blocks", `${currentUser.uid}_${uid}`)
-      );
+      const blockDoc = await getDoc(doc(db, "blocks", `${currentUser.uid}_${uid}`));
       if (blockDoc.exists()) setIsBlocked(true);
     }
     checkStatus();
@@ -90,9 +86,7 @@ export default function PublicProfile() {
         createdAt: new Date().toISOString(),
       });
 
-      await sendNotification(
-        uid,
-        "request_received",
+      await sendNotification(uid, "request_received",
         `🤝 ${currentUserName} sent you a skill swap request!`
       );
 
@@ -107,12 +101,10 @@ export default function PublicProfile() {
   async function handleBlock() {
     if (!currentUser) return;
     if (isBlocked) {
-      // Unblock
       await deleteDoc(doc(db, "blocks", `${currentUser.uid}_${uid}`));
       setIsBlocked(false);
       showToast("User unblocked.");
     } else {
-      // Block
       await setDoc(doc(db, "blocks", `${currentUser.uid}_${uid}`), {
         blockedBy: currentUser.uid,
         blockedUid: uid,
@@ -145,6 +137,28 @@ export default function PublicProfile() {
       showToast("Failed to submit report", "error");
     }
     setReportSubmitting(false);
+  }
+
+  // ---- NEW: Share profile link ----
+  async function handleShare() {
+    const url = `${window.location.origin}/profile/${uid}`;
+    try {
+      // Use native share sheet on mobile if available
+      if (navigator.share) {
+        await navigator.share({
+          title: `${profile.name} on SkillSwap`,
+          text: `Check out ${profile.name}'s skill profile on SkillSwap!`,
+          url,
+        });
+      } else {
+        // Fallback: copy to clipboard
+        await navigator.clipboard.writeText(url);
+        showToast("Profile link copied! 🔗");
+      }
+    } catch {
+      // If clipboard also fails, show the URL in toast
+      showToast("Profile link copied! 🔗");
+    }
   }
 
   function getTeachSkills() {
@@ -205,8 +219,12 @@ export default function PublicProfile() {
             ← Back
           </button>
           <h1 className="text-white font-bold">👤 Profile</h1>
-          <button onClick={() => router.push("/dashboard")} className="text-white/70 hover:text-white text-sm transition">
-            Dashboard
+          {/* Share button in navbar */}
+          <button
+            onClick={handleShare}
+            className="text-white/70 hover:text-white text-sm transition flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-white/10"
+          >
+            🔗 Share
           </button>
         </div>
       </nav>
@@ -247,15 +265,23 @@ export default function PublicProfile() {
           {/* Action buttons */}
           <div className="mt-6 flex flex-col gap-3">
             {isOwnProfile ? (
-              <button
-                onClick={() => router.push("/edit-profile")}
-                className="w-full bg-white/10 hover:bg-white/20 text-white py-3 rounded-2xl font-medium transition border border-white/20"
-              >
-                ✏️ Edit Your Profile
-              </button>
+              <>
+                <button
+                  onClick={() => router.push("/edit-profile")}
+                  className="w-full bg-white/10 hover:bg-white/20 text-white py-3 rounded-2xl font-medium transition border border-white/20"
+                >
+                  ✏️ Edit Your Profile
+                </button>
+                {/* Share own profile */}
+                <button
+                  onClick={handleShare}
+                  className="w-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 py-3 rounded-2xl font-medium transition border border-purple-500/30"
+                >
+                  🔗 Share My Profile
+                </button>
+              </>
             ) : (
               <>
-                {/* Send request */}
                 {alreadyRequested ? (
                   <div className="w-full bg-green-500/20 text-green-300 py-3 rounded-2xl font-medium text-center border border-green-500/30">
                     ✅ Request Already Sent
@@ -270,7 +296,6 @@ export default function PublicProfile() {
                   </button>
                 )}
 
-                {/* Block & Report row */}
                 <div className="flex gap-3">
                   <button
                     onClick={handleBlock}
@@ -370,15 +395,8 @@ export default function PublicProfile() {
             <p className="text-white/60 text-sm mb-4">
               Why are you reporting <span className="text-white font-medium">{profile.name}</span>?
             </p>
-
             <div className="flex flex-col gap-2 mb-4">
-              {[
-                "Inappropriate behavior",
-                "Spam or fake profile",
-                "Harassment",
-                "Misleading skills",
-                "Other"
-              ].map((reason) => (
+              {["Inappropriate behavior", "Spam or fake profile", "Harassment", "Misleading skills", "Other"].map((reason) => (
                 <button
                   key={reason}
                   onClick={() => setReportReason(reason)}
@@ -392,7 +410,6 @@ export default function PublicProfile() {
                 </button>
               ))}
             </div>
-
             <div className="flex gap-3">
               <button
                 onClick={() => { setShowReportModal(false); setReportReason(""); }}
