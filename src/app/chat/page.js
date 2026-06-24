@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { auth, db } from "@/lib/firebase";
 import {
   collection, query, where, onSnapshot,
-  addDoc, orderBy, doc, getDoc
+  addDoc, orderBy, doc, getDoc, updateDoc, setDoc, serverTimestamp
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
@@ -16,14 +16,15 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isTyping, setIsTyping] = useState(false); // other person typing
   const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
       if (!firebaseUser) { router.push("/"); return; }
       setMyUid(firebaseUser.uid);
 
-      // Get all chat rooms I'm part of
       const q = query(
         collection(db, "chats"),
         where("participants", "array-contains", firebaseUser.uid)
@@ -39,28 +40,77 @@ export default function Chat() {
     return () => unsubscribe();
   }, []);
 
-  // Load messages when a chat is selected
+  // Load messages + mark as read + listen for typing
   useEffect(() => {
-    if (!selectedChat) return;
+    if (!selectedChat || !myUid) return;
 
-    const q = query(
+    // Listen to messages
+    const msgQuery = query(
       collection(db, "chats", selectedChat.id, "messages"),
       orderBy("createdAt", "asc")
     );
 
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const msgs = [];
-      snap.forEach(d => msgs.push({ id: d.id, ...d.data() }));
+    const unsubMessages = onSnapshot(msgQuery, async (snap) => {
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setMessages(msgs);
+
+      // Mark unread messages from other person as read
+      const unread = snap.docs.filter(d => {
+        const data = d.data();
+        return data.senderUid !== myUid && !data.readBy?.includes(myUid);
+      });
+
+      for (const msgDoc of unread) {
+        await updateDoc(doc(db, "chats", selectedChat.id, "messages", msgDoc.id), {
+          readBy: [...(msgDoc.data().readBy || []), myUid]
+        });
+      }
     });
 
-    return () => unsubscribe();
-  }, [selectedChat]);
+    // Listen for other person typing
+    const otherUid = selectedChat.participants.find(p => p !== myUid);
+    const unsubTyping = onSnapshot(
+      doc(db, "chats", selectedChat.id, "typing", otherUid),
+      (snap) => {
+        if (!snap.exists()) { setIsTyping(false); return; }
+        const data = snap.data();
+        // Consider typing if updated within last 4 seconds
+        const lastTyped = data?.lastTyped?.toMillis?.() || 0;
+        setIsTyping(data.isTyping && Date.now() - lastTyped < 4000);
+      }
+    );
+
+    return () => {
+      unsubMessages();
+      unsubTyping();
+    };
+  }, [selectedChat, myUid]);
 
   // Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isTyping]);
+
+  // Handle typing indicator — writes to Firestore when user types
+  async function handleTyping(e) {
+    setNewMessage(e.target.value);
+    if (!selectedChat || !myUid) return;
+
+    // Set typing = true
+    await setDoc(doc(db, "chats", selectedChat.id, "typing", myUid), {
+      isTyping: true,
+      lastTyped: serverTimestamp(),
+    });
+
+    // Clear after 3 seconds of no typing
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(async () => {
+      await setDoc(doc(db, "chats", selectedChat.id, "typing", myUid), {
+        isTyping: false,
+        lastTyped: serverTimestamp(),
+      });
+    }, 3000);
+  }
 
   async function sendMessage() {
     if (!newMessage.trim()) return;
@@ -70,9 +120,23 @@ export default function Chat() {
       text: newMessage.trim(),
       senderUid: user.uid,
       senderName: user.displayName,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      readBy: [user.uid], // sender has already "read" their own message
     });
 
+    // Update last message preview in chat room
+    await updateDoc(doc(db, "chats", selectedChat.id), {
+      lastMessage: newMessage.trim(),
+      lastMessageTime: new Date().toISOString(),
+    });
+
+    // Clear typing indicator
+    await setDoc(doc(db, "chats", selectedChat.id, "typing", user.uid), {
+      isTyping: false,
+      lastTyped: serverTimestamp(),
+    });
+
+    clearTimeout(typingTimeoutRef.current);
     setNewMessage("");
   }
 
@@ -84,6 +148,13 @@ export default function Chat() {
   function formatTime(isoString) {
     const date = new Date(isoString);
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // Count unread messages in a chat room (for sidebar badge)
+  function getUnreadCount(room) {
+    // We don't have all messages in sidebar, so we skip per-room count
+    // This could be enhanced later with a counter field on the room doc
+    return 0;
   }
 
   if (loading) return (
@@ -113,7 +184,7 @@ export default function Chat() {
       {/* Chat Layout */}
       <div className="flex flex-1 max-w-6xl mx-auto w-full px-4 py-6 gap-4 h-[calc(100vh-72px)]">
 
-        {/* Left Sidebar - Chat List */}
+        {/* Left Sidebar */}
         <div className="w-80 bg-white rounded-2xl shadow-sm flex flex-col overflow-hidden border border-gray-100">
           <div className="p-4 border-b border-gray-100">
             <h2 className="font-bold text-gray-800 text-lg">💬 My Chats</h2>
@@ -177,7 +248,12 @@ export default function Chat() {
                   <div className="font-semibold text-gray-800">
                     {getOtherPersonName(selectedChat)}
                   </div>
-                  <div className="text-xs text-green-500">● Online</div>
+                  {/* Typing indicator in header */}
+                  {isTyping ? (
+                    <div className="text-xs text-indigo-500 animate-pulse">typing...</div>
+                  ) : (
+                    <div className="text-xs text-green-500">● Online</div>
+                  )}
                 </div>
                 <button
                   onClick={() => router.push("/sessions")}
@@ -195,8 +271,15 @@ export default function Chat() {
                     <p className="text-xs mt-1">Say hello and introduce yourself! 👋</p>
                   </div>
                 ) : (
-                  messages.map(msg => {
+                  messages.map((msg, index) => {
                     const isMe = msg.senderUid === myUid;
+                    const otherUid = selectedChat.participants.find(p => p !== myUid);
+                    const isRead = msg.readBy?.includes(otherUid);
+                    const isLastFromMe = isMe && (
+                      index === messages.length - 1 ||
+                      messages[index + 1]?.senderUid !== myUid
+                    );
+
                     return (
                       <div
                         key={msg.id}
@@ -208,14 +291,34 @@ export default function Chat() {
                             : "bg-gray-100 text-gray-800 rounded-bl-sm"
                         }`}>
                           <p>{msg.text}</p>
-                          <p className={`text-xs mt-1 ${isMe ? "text-indigo-200" : "text-gray-400"}`}>
-                            {formatTime(msg.createdAt)}
-                          </p>
+                          <div className={`flex items-center gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
+                            <p className={`text-xs ${isMe ? "text-indigo-200" : "text-gray-400"}`}>
+                              {formatTime(msg.createdAt)}
+                            </p>
+                            {/* Read receipt — only show on last message from me */}
+                            {isMe && isLastFromMe && (
+                              <span className={`text-xs ${isRead ? "text-indigo-200" : "text-indigo-300/50"}`}>
+                                {isRead ? "✓✓" : "✓"}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
                   })
                 )}
+
+                {/* Typing bubble */}
+                {isTyping && (
+                  <div className="flex justify-start">
+                    <div className="bg-gray-100 text-gray-500 px-4 py-3 rounded-2xl rounded-bl-sm text-sm flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                  </div>
+                )}
+
                 <div ref={messagesEndRef} />
               </div>
 
@@ -223,7 +326,7 @@ export default function Chat() {
               <div className="px-6 py-4 border-t border-gray-100 flex gap-3 items-center">
                 <input
                   value={newMessage}
-                  onChange={e => setNewMessage(e.target.value)}
+                  onChange={handleTyping}
                   onKeyDown={e => e.key === "Enter" && sendMessage()}
                   placeholder="Type a message... (Enter to send)"
                   className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
