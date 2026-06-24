@@ -1,326 +1,384 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import {
   collection, query, where, onSnapshot,
-  doc, updateDoc, deleteDoc, getDoc
+  addDoc, doc, updateDoc, getDoc, deleteDoc
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
 
-export default function SessionsPage() {
-  const [sessions, setSessions] = useState([]);
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [rescheduling, setRescheduling] = useState(null); // sessionId being rescheduled
-  const [newDate, setNewDate] = useState("");
-  const [newTime, setNewTime] = useState("");
+export default function Sessions() {
   const router = useRouter();
   const showToast = useToast();
+  const [myUid, setMyUid] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [chatRooms, setChatRooms] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedChat, setSelectedChat] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [meetLink, setMeetLink] = useState("");
+  const [skill, setSkill] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("upcoming");
+  const [reschedulingId, setReschedulingId] = useState(null);
+  const [newDate, setNewDate] = useState("");
+  const [newTime, setNewTime] = useState("");
+  const [newMeetLink, setNewMeetLink] = useState("");
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (u) => {
-      if (!u) { router.push("/"); return; }
-      setUser(u);
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      if (!firebaseUser) { router.push("/"); return; }
+      setMyUid(firebaseUser.uid);
 
       const q = query(
         collection(db, "sessions"),
-        where("participants", "array-contains", u.uid)
+        where("participants", "array-contains", firebaseUser.uid)
       );
-
-      const unsubSnap = onSnapshot(q, async (snap) => {
-        const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-        // Enrich with partner info
-        const enriched = await Promise.all(
-          raw.map(async (s) => {
-            const partnerId = s.participants.find((p) => p !== u.uid);
-            let partnerName = "Unknown";
-            let partnerPhoto = null;
-            if (partnerId) {
-              const pd = await getDoc(doc(db, "users", partnerId));
-              if (pd.exists()) {
-                partnerName = pd.data().name || "Unknown";
-                partnerPhoto = pd.data().photoBase64 || null;
-              }
-            }
-            return { ...s, partnerName, partnerPhoto };
-          })
-        );
-
-        // Sort: upcoming first, then by date
-        enriched.sort((a, b) => {
-          if (a.status === "completed" && b.status !== "completed") return 1;
-          if (a.status !== "completed" && b.status === "completed") return -1;
-          return new Date(a.scheduledAt) - new Date(b.scheduledAt);
-        });
-
-        setSessions(enriched);
+      onSnapshot(q, (snap) => {
+        const data = [];
+        snap.forEach(d => data.push({ id: d.id, ...d.data() }));
+        data.sort((a, b) => new Date(a.date + " " + a.time) - new Date(b.date + " " + b.time));
+        setSessions(data);
         setLoading(false);
       });
 
-      return () => unsubSnap();
+      const chatQ = query(
+        collection(db, "chats"),
+        where("participants", "array-contains", firebaseUser.uid)
+      );
+      onSnapshot(chatQ, (snap) => {
+        const rooms = [];
+        snap.forEach(d => rooms.push({ id: d.id, ...d.data() }));
+        setChatRooms(rooms);
+      });
     });
-    return () => unsub();
-  }, [router]);
+    return () => unsubscribe();
+  }, []);
+
+  function getOtherPersonName(room) {
+    const otherUid = room.participants.find(p => p !== myUid);
+    return room.participantNames?.[otherUid] || "Unknown";
+  }
+
+  async function scheduleSession() {
+    if (!selectedChat || !date || !time || !skill) {
+      showToast("Please fill all fields!", "error");
+      return;
+    }
+    const room = chatRooms.find(r => r.id === selectedChat);
+    const otherUid = room.participants.find(p => p !== myUid);
+
+    await addDoc(collection(db, "sessions"), {
+      participants: [myUid, otherUid],
+      chatId: selectedChat,
+      skill, date, time, meetLink,
+      status: "scheduled",
+      createdBy: myUid,
+      reviewed: [],
+      createdAt: new Date().toISOString()
+    });
+
+    setShowForm(false);
+    setDate(""); setTime(""); setMeetLink(""); setSkill(""); setSelectedChat("");
+    showToast("Session scheduled! 🎉");
+  }
 
   async function markComplete(sessionId) {
-    try {
-      await updateDoc(doc(db, "sessions", sessionId), { status: "completed" });
-      showToast("Session marked as complete! ✅");
-    } catch {
-      showToast("Failed to update session", "error");
-    }
+    await updateDoc(doc(db, "sessions", sessionId), { status: "completed" });
+    const userRef = doc(db, "users", myUid);
+    const userSnap = await getDoc(userRef);
+    const current = userSnap.data().sessionsCompleted || 0;
+    await updateDoc(userRef, { sessionsCompleted: current + 1 });
+    showToast("Session marked as complete! ✅");
   }
 
   async function cancelSession(sessionId) {
-    if (!confirm("Are you sure you want to cancel this session?")) return;
-    try {
-      await deleteDoc(doc(db, "sessions", sessionId));
-      showToast("Session cancelled.");
-    } catch {
-      showToast("Failed to cancel session", "error");
-    }
+    await deleteDoc(doc(db, "sessions", sessionId));
+    showToast("Session cancelled.");
   }
 
-  async function rescheduleSession(sessionId) {
+  function openReschedule(session) {
+    setReschedulingId(session.id);
+    setNewDate(session.date || "");
+    setNewTime(session.time || "");
+    setNewMeetLink(session.meetLink || "");
+  }
+
+  async function saveReschedule() {
     if (!newDate || !newTime) {
-      showToast("Please pick a date and time", "error");
+      showToast("Please pick a new date and time.", "error");
       return;
     }
-    const combined = new Date(`${newDate}T${newTime}`);
-    if (isNaN(combined)) {
-      showToast("Invalid date/time", "error");
-      return;
-    }
-    try {
-      await updateDoc(doc(db, "sessions", sessionId), {
-        scheduledAt: combined.toISOString(),
-        status: "scheduled",
-      });
-      showToast("Session rescheduled! 📅");
-      setRescheduling(null);
-      setNewDate("");
-      setNewTime("");
-    } catch {
-      showToast("Failed to reschedule session", "error");
-    }
+    await updateDoc(doc(db, "sessions", reschedulingId), {
+      date: newDate,
+      time: newTime,
+      meetLink: newMeetLink,
+      status: "scheduled"
+    });
+    setReschedulingId(null);
+    showToast("Session rescheduled! 📅");
   }
 
-  function formatDate(iso) {
-    if (!iso) return "TBD";
-    const d = new Date(iso);
-    return d.toLocaleString("en-IN", {
-      weekday: "short", day: "numeric", month: "short",
-      year: "numeric", hour: "2-digit", minute: "2-digit",
+  function isUpcoming(session) {
+    const sessionDate = new Date(session.date + " " + session.time);
+    return sessionDate >= new Date() && session.status === "scheduled";
+  }
+
+  function isPast(session) {
+    const sessionDate = new Date(session.date + " " + session.time);
+    return sessionDate < new Date() || session.status === "completed";
+  }
+
+  function formatDate(dateStr) {
+    return new Date(dateStr).toLocaleDateString("en-IN", {
+      weekday: "short", day: "numeric", month: "short", year: "numeric"
     });
   }
 
-  const upcoming = sessions.filter((s) => s.status !== "completed");
-  const completed = sessions.filter((s) => s.status === "completed");
+  const upcomingSessions = sessions.filter(isUpcoming);
+  const pastSessions = sessions.filter(isPast);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-white text-xl animate-pulse">Loading sessions...</div>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <p className="text-indigo-600 animate-pulse text-lg">Loading sessions...</p>
+    </div>
+  );
 
-  const SessionCard = ({ session }) => {
-    const isRescheduling = rescheduling === session.id;
-    const isPast = new Date(session.scheduledAt) < new Date() && session.status !== "completed";
+  return (
+    <div className="min-h-screen bg-gray-50">
 
-    return (
-      <div className={`bg-white/10 backdrop-blur-sm rounded-2xl p-5 border ${
-        session.status === "completed"
-          ? "border-green-500/30"
-          : isPast
-          ? "border-red-500/30"
-          : "border-white/20"
-      }`}>
+      {/* Navbar */}
+      <nav className="bg-white shadow-sm px-6 py-4 flex items-center justify-between">
+        <div onClick={() => router.push("/dashboard")} className="text-2xl font-bold text-indigo-700 cursor-pointer">
+          🔁 SkillSwap
+        </div>
+        <div className="flex gap-4 text-sm font-medium text-gray-500">
+          <button onClick={() => router.push("/dashboard")} className="hover:text-indigo-600">Dashboard</button>
+          <button onClick={() => router.push("/discover")} className="hover:text-indigo-600">Discover</button>
+          <button onClick={() => router.push("/chat")} className="hover:text-indigo-600">Chat</button>
+          <button onClick={() => router.push("/requests")} className="hover:text-indigo-600">Requests</button>
+        </div>
+      </nav>
+
+      <div className="max-w-4xl mx-auto px-4 py-10 flex flex-col gap-6">
+
         {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
-          {session.partnerPhoto ? (
-            <img
-              src={session.partnerPhoto}
-              alt={session.partnerName}
-              className="w-12 h-12 rounded-full object-cover border-2 border-purple-400"
-            />
-          ) : (
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg">
-              {session.partnerName?.charAt(0) || "?"}
-            </div>
-          )}
-          <div className="flex-1">
-            <p className="text-white font-semibold">{session.partnerName}</p>
-            <p className="text-purple-300 text-sm">
-              {session.skillTaught ? `Teaching: ${session.skillTaught}` : "Skill exchange"}
-            </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800">My Sessions 📅</h1>
+            <p className="text-gray-400 text-sm mt-1">Schedule and manage your skill exchange sessions</p>
           </div>
-          <span className={`text-xs px-3 py-1 rounded-full font-medium ${
-            session.status === "completed"
-              ? "bg-green-500/20 text-green-300"
-              : isPast
-              ? "bg-red-500/20 text-red-300"
-              : "bg-blue-500/20 text-blue-300"
-          }`}>
-            {session.status === "completed" ? "✅ Done" : isPast ? "⚠️ Overdue" : "📅 Upcoming"}
-          </span>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-indigo-700 transition"
+          >
+            + Schedule Session
+          </button>
         </div>
 
-        {/* Date */}
-        <div className="flex items-center gap-2 text-white/70 text-sm mb-3">
-          <span>🕐</span>
-          <span>{formatDate(session.scheduledAt)}</span>
-        </div>
+        {/* Schedule Form */}
+        {showForm && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-4">
+            <h2 className="font-bold text-gray-800 text-lg">📅 New Session</h2>
 
-        {/* Notes */}
-        {session.notes && (
-          <p className="text-white/60 text-sm mb-4 bg-white/5 rounded-xl px-3 py-2">
-            📝 {session.notes}
-          </p>
-        )}
-
-        {/* Reschedule form */}
-        {isRescheduling && (
-          <div className="mb-4 bg-white/5 rounded-xl p-4 border border-purple-500/30">
-            <p className="text-white text-sm font-medium mb-3">📅 Pick a new date & time</p>
-            <div className="flex gap-2 mb-3">
-              <input
-                type="date"
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
-                min={new Date().toISOString().split("T")[0]}
-                className="flex-1 bg-white/10 text-white rounded-xl px-3 py-2 text-sm border border-white/20 focus:outline-none focus:border-purple-400"
-              />
-              <input
-                type="time"
-                value={newTime}
-                onChange={(e) => setNewTime(e.target.value)}
-                className="flex-1 bg-white/10 text-white rounded-xl px-3 py-2 text-sm border border-white/20 focus:outline-none focus:border-purple-400"
-              />
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-600">Select Partner</label>
+              <select value={selectedChat} onChange={e => setSelectedChat(e.target.value)}
+                className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="">-- Choose from your chats --</option>
+                {chatRooms.map(room => (
+                  <option key={room.id} value={room.id}>{getOtherPersonName(room)}</option>
+                ))}
+              </select>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => rescheduleSession(session.id)}
-                className="flex-1 bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-xl text-sm font-medium transition"
-              >
-                Confirm
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-600">Skill to Exchange</label>
+              <input value={skill} onChange={e => setSkill(e.target.value)}
+                placeholder="e.g. Python, UI Design..."
+                className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-600">Date</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                  className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-600">Time</label>
+                <input type="time" value={time} onChange={e => setTime(e.target.value)}
+                  className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-600">Google Meet / Zoom Link (optional)</label>
+              <input value={meetLink} onChange={e => setMeetLink(e.target.value)}
+                placeholder="https://meet.google.com/..."
+                className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={scheduleSession}
+                className="bg-indigo-600 text-white px-6 py-3 rounded-xl text-sm font-medium hover:bg-indigo-700 transition flex-1">
+                ✓ Confirm Session
               </button>
-              <button
-                onClick={() => { setRescheduling(null); setNewDate(""); setNewTime(""); }}
-                className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl text-sm transition"
-              >
+              <button onClick={() => setShowForm(false)}
+                className="border border-gray-300 text-gray-500 px-6 py-3 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
                 Cancel
               </button>
             </div>
           </div>
         )}
 
-        {/* Actions */}
-        {session.status !== "completed" && (
-          <div className="flex gap-2 flex-wrap">
-            {session.meetLink && (
-              <a
-                href={session.meetLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2.5 rounded-xl text-sm font-medium transition"
-              >
-                🎥 Join Session
-              </a>
-            )}
-            <button
-              onClick={() => markComplete(session.id)}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2.5 rounded-xl text-sm font-medium transition"
-            >
-              ✅ Mark Done
-            </button>
-            <button
-              onClick={() => {
-                setRescheduling(isRescheduling ? null : session.id);
-                setNewDate("");
-                setNewTime("");
-              }}
-              className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white py-2.5 rounded-xl text-sm font-medium transition"
-            >
-              📅 Reschedule
-            </button>
-            <button
-              onClick={() => cancelSession(session.id)}
-              className="flex-1 bg-red-500/20 hover:bg-red-500/40 text-red-300 py-2.5 rounded-xl text-sm font-medium transition border border-red-500/30"
-            >
-              ✕ Cancel
-            </button>
-          </div>
-        )}
-
-        {/* Completed actions */}
-        {session.status === "completed" && (
-          <button
-            onClick={() => router.push("/reviews")}
-            className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white py-2.5 rounded-xl text-sm font-medium transition"
-          >
-            ⭐ Leave a Review
+        {/* Tabs */}
+        <div className="flex gap-2 bg-white rounded-xl p-1 shadow-sm w-fit">
+          <button onClick={() => setTab("upcoming")}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition ${tab === "upcoming" ? "bg-indigo-600 text-white" : "text-gray-500 hover:text-indigo-600"}`}>
+            Upcoming ({upcomingSessions.length})
           </button>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* Navbar */}
-      <nav className="bg-white/10 backdrop-blur-sm border-b border-white/20 px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <button onClick={() => router.push("/dashboard")} className="text-white/70 hover:text-white text-sm transition">
-            ← Dashboard
+          <button onClick={() => setTab("past")}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition ${tab === "past" ? "bg-purple-600 text-white" : "text-gray-500 hover:text-purple-600"}`}>
+            Past ({pastSessions.length})
           </button>
-          <h1 className="text-white font-bold text-lg">📅 My Sessions</h1>
-          <div className="text-white/50 text-sm">{upcoming.length} upcoming</div>
         </div>
-      </nav>
 
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        {sessions.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="text-6xl mb-4">📅</div>
-            <h2 className="text-white text-xl font-semibold mb-2">No sessions yet</h2>
-            <p className="text-white/50 mb-6">Accept a request to schedule your first session</p>
-            <button
-              onClick={() => router.push("/requests")}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-xl font-medium hover:opacity-90 transition"
-            >
-              View Requests
-            </button>
+        {/* Upcoming Sessions */}
+        {tab === "upcoming" && (
+          <div className="flex flex-col gap-4">
+            {upcomingSessions.length === 0 ? (
+              <div className="text-center py-20 text-gray-400">
+                <div className="text-4xl mb-3">📅</div>
+                <p>No upcoming sessions</p>
+                <p className="text-sm mt-1">Schedule one with your chat partners!</p>
+              </div>
+            ) : (
+              upcomingSessions.map(session => (
+                <div key={session.id} className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100 flex flex-col gap-4">
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-2xl">🎓</div>
+                      <div>
+                        <div className="font-semibold text-gray-800">{session.skill}</div>
+                        <div className="text-xs text-gray-400 mt-0.5">Skill Exchange Session</div>
+                      </div>
+                    </div>
+                    <span className="bg-green-100 text-green-600 text-xs px-3 py-1 rounded-full font-medium">Scheduled</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <div className="text-xs text-gray-400">Date</div>
+                      <div className="font-medium text-gray-700 text-sm mt-0.5">{formatDate(session.date)}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <div className="text-xs text-gray-400">Time</div>
+                      <div className="font-medium text-gray-700 text-sm mt-0.5">{session.time}</div>
+                    </div>
+                  </div>
+
+                  {/* Inline Reschedule Form */}
+                  {reschedulingId === session.id && (
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex flex-col gap-3">
+                      <p className="text-sm font-semibold text-indigo-700">📅 Pick a new time</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500">New Date</label>
+                          <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+                            className="border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500">New Time</label>
+                          <input type="time" value={newTime} onChange={e => setNewTime(e.target.value)}
+                            className="border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-gray-500">New Meet Link (optional)</label>
+                        <input value={newMeetLink} onChange={e => setNewMeetLink(e.target.value)}
+                          placeholder="https://meet.google.com/..."
+                          className="border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={saveReschedule}
+                          className="flex-1 bg-indigo-600 text-white py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 transition">
+                          ✓ Save New Time
+                        </button>
+                        <button onClick={() => setReschedulingId(null)}
+                          className="border border-gray-300 text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-50 transition">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 flex-wrap">
+                    {session.meetLink && (
+                      <a href={session.meetLink} target="_blank" rel="noopener noreferrer"
+                        className="flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2.5 rounded-xl text-sm font-medium transition">
+                        🎥 Join
+                      </a>
+                    )}
+                    <button onClick={() => openReschedule(session)}
+                      className="flex-1 border border-indigo-300 text-indigo-600 py-2.5 rounded-xl text-sm font-medium hover:bg-indigo-50 transition">
+                      📅 Reschedule
+                    </button>
+                    <button onClick={() => markComplete(session.id)}
+                      className="flex-1 border border-gray-300 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+                      ✓ Complete
+                    </button>
+                    <button onClick={() => cancelSession(session.id)}
+                      className="flex-1 bg-red-50 text-red-500 py-2.5 rounded-xl text-sm font-medium hover:bg-red-100 transition">
+                      ✕ Cancel
+                    </button>
+                    <button onClick={() => router.push("/review?sessionId=" + session.id)}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-xl text-sm font-medium transition">
+                      ⭐ Review
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
-        ) : (
-          <>
-            {/* Upcoming */}
-            {upcoming.length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-white font-semibold text-lg mb-4">
-                  🗓️ Upcoming ({upcoming.length})
-                </h2>
-                <div className="space-y-4">
-                  {upcoming.map((s) => <SessionCard key={s.id} session={s} />)}
-                </div>
-              </div>
-            )}
+        )}
 
-            {/* Completed */}
-            {completed.length > 0 && (
-              <div>
-                <h2 className="text-white font-semibold text-lg mb-4">
-                  ✅ Completed ({completed.length})
-                </h2>
-                <div className="space-y-4">
-                  {completed.map((s) => <SessionCard key={s.id} session={s} />)}
-                </div>
+        {/* Past Sessions */}
+        {tab === "past" && (
+          <div className="flex flex-col gap-4">
+            {pastSessions.length === 0 ? (
+              <div className="text-center py-20 text-gray-400">
+                <div className="text-4xl mb-3">🎓</div>
+                <p>No past sessions yet</p>
               </div>
+            ) : (
+              pastSessions.map(session => (
+                <div key={session.id} className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center text-2xl">✅</div>
+                    <div>
+                      <div className="font-semibold text-gray-800">{session.skill}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{formatDate(session.date)} at {session.time}</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <span className="bg-purple-100 text-purple-600 text-xs px-3 py-1 rounded-full font-medium">Completed</span>
+                    {!session.reviewed?.includes(myUid) && (
+                      <button onClick={() => router.push("/review?sessionId=" + session.id)}
+                        className="bg-yellow-400 hover:bg-yellow-500 text-white px-4 py-1.5 rounded-xl text-xs font-medium transition">
+                        ⭐ Leave Review
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
