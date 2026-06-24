@@ -42,6 +42,16 @@ const LEVEL_COLORS = {
   Expert: "bg-red-100 text-red-700 border-red-300"
 };
 
+// --- Availability options ---
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const TIME_SLOTS = [
+  "Early Morning (6–9 AM)",
+  "Morning (9 AM–12 PM)",
+  "Afternoon (12–4 PM)",
+  "Evening (4–8 PM)",
+  "Night (8–11 PM)",
+];
+
 const MAX_DIMENSION = 400;
 const JPEG_QUALITY = 0.7;
 
@@ -56,7 +66,6 @@ export default function EditProfile() {
   const [name, setName] = useState("");
   const [college, setCollege] = useState("");
   const [bio, setBio] = useState("");
-  // teaching is now { skillName: level } object
   const [teaching, setTeaching] = useState({});
   const [learning, setLearning] = useState([]);
   const [customTeach, setCustomTeach] = useState("");
@@ -67,6 +76,10 @@ export default function EditProfile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pickingLevel, setPickingLevel] = useState(null);
+
+  // --- Availability state ---
+  const [availableDays, setAvailableDays] = useState([]);
+  const [availableSlots, setAvailableSlots] = useState([]);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
@@ -80,15 +93,12 @@ export default function EditProfile() {
         setCollege(data.college || "");
         setBio(data.bio || "");
 
-        // Handle both old format (array of strings) and new format (array of {skill, level})
         const rawTeach = data.teach || [];
         if (rawTeach.length > 0 && typeof rawTeach[0] === "string") {
-          // old format — convert to object with no level set
           const converted = {};
           rawTeach.forEach(s => { converted[s] = "Intermediate"; });
           setTeaching(converted);
         } else {
-          // new format
           const converted = {};
           rawTeach.forEach(({ skill, level }) => { converted[skill] = level; });
           setTeaching(converted);
@@ -96,6 +106,10 @@ export default function EditProfile() {
 
         setLearning(data.learn || []);
         setPhotoPreview(data.photoBase64 || firebaseUser.photoURL || "");
+
+        // Load saved availability
+        setAvailableDays(data.availableDays || []);
+        setAvailableSlots(data.availableSlots || []);
       } else {
         router.push("/profile-setup");
       }
@@ -146,11 +160,23 @@ export default function EditProfile() {
     setCustomLearn("");
   }
 
-  // ---- Photo: Upload from device ----
+  // ---- Availability handlers ----
+  function toggleDay(day) {
+    setAvailableDays(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    );
+  }
+
+  function toggleSlot(slot) {
+    setAvailableSlots(prev =>
+      prev.includes(slot) ? prev.filter(s => s !== slot) : [...prev, slot]
+    );
+  }
+
+  // ---- Photo handlers ----
   function handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -163,18 +189,15 @@ export default function EditProfile() {
     reader.readAsDataURL(file);
   }
 
-  // ---- Photo: Capture from camera ----
   async function startCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
       setCameraOpen(true);
       setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
+        if (videoRef.current) videoRef.current.srcObject = stream;
       }, 100);
-    } catch (err) {
+    } catch {
       showToast("Couldn't access camera. Please check browser permissions.", "error");
     }
   }
@@ -190,16 +213,13 @@ export default function EditProfile() {
   function capturePhoto() {
     const video = videoRef.current;
     if (!video) return;
-
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
-
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
     const img = new Image();
     img.onload = () => {
       const base64 = resizeImageToBase64(img);
@@ -218,13 +238,11 @@ export default function EditProfile() {
       width = Math.round((width * MAX_DIMENSION) / height);
       height = MAX_DIMENSION;
     }
-
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(img, 0, 0, width, height);
-
     return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
   }
 
@@ -238,7 +256,6 @@ export default function EditProfile() {
       showToast("Please fill all fields and select at least one skill each.", "error");
       return;
     }
-
     setSaving(true);
     await updateDoc(doc(db, "users", myUid), {
       name,
@@ -246,7 +263,9 @@ export default function EditProfile() {
       bio,
       teach: Object.entries(teaching).map(([skill, level]) => ({ skill, level })),
       learn: learning,
-      photoBase64: photoPreview || ""
+      photoBase64: photoPreview || "",
+      availableDays,
+      availableSlots,
     });
     setSaving(false);
     showToast("Profile updated! ✅");
@@ -285,9 +304,7 @@ export default function EditProfile() {
             {photoPreview ? (
               <img src={photoPreview} alt="Profile" className="w-full h-full object-cover" />
             ) : (
-              <span className="text-4xl font-bold text-indigo-400">
-                {name?.charAt(0) || "?"}
-              </span>
+              <span className="text-4xl font-bold text-indigo-400">{name?.charAt(0) || "?"}</span>
             )}
           </div>
 
@@ -301,46 +318,25 @@ export default function EditProfile() {
                 style={{ transform: "scaleX(-1)" }}
               />
               <div className="flex gap-2">
-                <button
-                  onClick={capturePhoto}
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 transition"
-                >
+                <button onClick={capturePhoto} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-700 transition">
                   📸 Capture
                 </button>
-                <button
-                  onClick={stopCamera}
-                  className="border border-gray-300 text-gray-500 px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition"
-                >
+                <button onClick={stopCamera} className="border border-gray-300 text-gray-500 px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
                   Cancel
                 </button>
               </div>
             </div>
           ) : (
             <div className="flex gap-2 flex-wrap justify-center">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-100 transition"
-              >
+              <button onClick={() => fileInputRef.current?.click()} className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-100 transition">
                 📁 Upload Photo
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <button
-                onClick={startCamera}
-                className="bg-purple-50 text-purple-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-purple-100 transition"
-              >
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+              <button onClick={startCamera} className="bg-purple-50 text-purple-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-purple-100 transition">
                 📷 Use Camera
               </button>
               {photoPreview && (
-                <button
-                  onClick={removePhoto}
-                  className="bg-red-50 text-red-500 px-4 py-2 rounded-xl text-sm font-medium hover:bg-red-100 transition"
-                >
+                <button onClick={removePhoto} className="bg-red-50 text-red-500 px-4 py-2 rounded-xl text-sm font-medium hover:bg-red-100 transition">
                   ✕ Remove
                 </button>
               )}
@@ -407,10 +403,7 @@ export default function EditProfile() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setPickingLevel(null)}
-              className="text-xs text-gray-400 hover:text-gray-600 text-center"
-            >
+            <button onClick={() => setPickingLevel(null)} className="text-xs text-gray-400 hover:text-gray-600 text-center">
               Cancel
             </button>
           </div>
@@ -433,13 +426,10 @@ export default function EditProfile() {
                 }`}
               >
                 {skill}
-                {teaching[skill] && (
-                  <span className="ml-1 text-xs opacity-80">· {teaching[skill]}</span>
-                )}
+                {teaching[skill] && <span className="ml-1 text-xs opacity-80">· {teaching[skill]}</span>}
               </button>
             ))}
           </div>
-
           <div className="flex gap-2">
             <input
               value={customTeach}
@@ -448,14 +438,10 @@ export default function EditProfile() {
               placeholder="Don't see it? Type your own skill..."
               className="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
-            <button
-              onClick={addCustomTeach}
-              className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-200 transition"
-            >
+            <button onClick={addCustomTeach} className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-200 transition">
               + Add
             </button>
           </div>
-
           {teachingSkills.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-1">
               {teachingSkills.map(skill => (
@@ -489,7 +475,6 @@ export default function EditProfile() {
               </button>
             ))}
           </div>
-
           <div className="flex gap-2">
             <input
               value={customLearn}
@@ -498,14 +483,10 @@ export default function EditProfile() {
               placeholder="Don't see it? Type your own skill..."
               className="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
             />
-            <button
-              onClick={addCustomLearn}
-              className="bg-purple-100 text-purple-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-purple-200 transition"
-            >
+            <button onClick={addCustomLearn} className="bg-purple-100 text-purple-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-purple-200 transition">
               + Add
             </button>
           </div>
-
           {learning.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-1">
               {learning.map(skill => (
@@ -519,6 +500,49 @@ export default function EditProfile() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* ---- AVAILABILITY (new section) ---- */}
+        <div className="flex flex-col gap-4 border-t border-gray-100 pt-4">
+          <div>
+            <label className="text-sm font-medium text-gray-600">📅 Available Days</label>
+            <p className="text-xs text-gray-400 mt-0.5">Which days are you free for sessions?</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {DAYS.map(day => (
+              <button
+                key={day}
+                onClick={() => toggleDay(day)}
+                className={`px-3 py-1.5 rounded-full text-sm border transition ${
+                  availableDays.includes(day)
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-white text-gray-600 border-gray-300 hover:border-indigo-400"
+                }`}
+              >
+                {day.slice(0, 3)}
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-600">🕐 Preferred Time Slots</label>
+            <p className="text-xs text-gray-400 mt-0.5">When during the day works best for you?</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {TIME_SLOTS.map(slot => (
+              <button
+                key={slot}
+                onClick={() => toggleSlot(slot)}
+                className={`px-3 py-1.5 rounded-full text-sm border transition ${
+                  availableSlots.includes(slot)
+                    ? "bg-purple-600 text-white border-purple-600"
+                    : "bg-white text-gray-600 border-gray-300 hover:border-purple-400"
+                }`}
+              >
+                {slot}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Save */}
