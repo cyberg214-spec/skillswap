@@ -305,11 +305,11 @@ export default function Discover() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => router.push(`/profile/${user.uid}`)}
-                        className="px-3 py-2 rounded-xl text-sm font-medium border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition"
-                      >
-                        View Profile
-                      </button>
+  onClick={() => router.push(`/profile/${user.uid}`)}
+  className="px-4 py-2 border border-indigo-300 text-indigo-600 rounded-xl text-sm font-medium hover:bg-indigo-50 transition"
+>
+  View Profile
+</button>
                       <button
                         onClick={() => sendRequest(user)}
                         disabled={alreadySent}
