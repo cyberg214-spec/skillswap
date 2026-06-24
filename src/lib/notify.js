@@ -1,20 +1,16 @@
-// src/lib/notify.js
-// Call this whenever you want to send a notification to a user.
-// Import it in any page: import { sendNotification } from "@/lib/notify";
-
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-export async function sendNotification(toUid, type, message) {
+export async function sendNotification(toUid, message, link = "/dashboard") {
   try {
     await addDoc(collection(db, "notifications"), {
       toUid,
-      type,
       message,
+      link,
       read: false,
-      createdAt: serverTimestamp(),
+      createdAt: new Date().toISOString()
     });
-  } catch (e) {
-    console.error("Failed to send notification:", e);
+  } catch (err) {
+    console.error("Failed to send notification:", err);
   }
 }
