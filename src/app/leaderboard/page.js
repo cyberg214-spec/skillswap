@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 export default function Leaderboard() {
   const router = useRouter();
   const [users, setUsers] = useState([]);
   const [myUid, setMyUid] = useState(null);
+  const [myStreak, setMyStreak] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("sessions");
 
@@ -17,12 +18,23 @@ export default function Leaderboard() {
       if (!firebaseUser) { router.push("/"); return; }
       setMyUid(firebaseUser.uid);
 
+      // Load all users
       const snapshot = await getDocs(collection(db, "users"));
       const allUsers = [];
-      snapshot.forEach(d => allUsers.push({ id: d.id, ...d.data() }));
+      snapshot.forEach(d => allUsers.push({ id: d.id, uid: d.id, ...d.data() }));
+
+      // Load all completed sessions to calculate streaks
+      const sessionsSnap = await getDocs(collection(db, "sessions"));
+      const allSessions = sessionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // Calculate streak for each user
+      const withStreaks = allUsers.map(u => {
+        const streak = calculateStreak(u.uid, allSessions);
+        return { ...u, streak };
+      });
 
       // Calculate leaderboard score
-      const scored = allUsers.map(u => ({
+      const scored = withStreaks.map(u => ({
         ...u,
         score: Math.round(
           (u.sessionsCompleted || 0) * 0.6 +
@@ -32,10 +44,61 @@ export default function Leaderboard() {
 
       scored.sort((a, b) => b.score - a.score);
       setUsers(scored);
+
+      // Set my streak
+      const me = scored.find(u => u.uid === firebaseUser.uid);
+      if (me) setMyStreak(me.streak || 0);
+
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
+
+  // Calculate consecutive week streak for a user
+  function calculateStreak(uid, allSessions) {
+    // Get completed sessions for this user
+    const userSessions = allSessions.filter(s =>
+      s.status === "completed" &&
+      s.participants?.includes(uid) &&
+      s.scheduledAt
+    );
+
+    if (userSessions.length === 0) return 0;
+
+    // Get the week number for each session
+    function getWeekKey(dateStr) {
+      const d = new Date(dateStr);
+      const startOfYear = new Date(d.getFullYear(), 0, 1);
+      const week = Math.floor((d - startOfYear) / (7 * 24 * 60 * 60 * 1000));
+      return `${d.getFullYear()}-${week}`;
+    }
+
+    const weekSet = new Set(userSessions.map(s => getWeekKey(s.scheduledAt)));
+
+    // Count consecutive weeks going back from current week
+    let streak = 0;
+    const now = new Date();
+    let checkDate = new Date(now);
+
+    for (let i = 0; i < 52; i++) {
+      const key = getWeekKey(checkDate.toISOString());
+      if (weekSet.has(key)) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 7);
+      } else {
+        break;
+      }
+    }
+
+    return streak;
+  }
+
+  function getStreakLabel(streak) {
+    if (streak === 0) return null;
+    if (streak >= 8) return { label: `🔥 ${streak}w`, color: "bg-red-100 text-red-600" };
+    if (streak >= 4) return { label: `🔥 ${streak}w`, color: "bg-orange-100 text-orange-600" };
+    return { label: `🔥 ${streak}w`, color: "bg-yellow-100 text-yellow-600" };
+  }
 
   function getMedal(index) {
     if (index === 0) return "🥇";
@@ -53,7 +116,13 @@ export default function Leaderboard() {
 
   const sortedByRating = [...users].sort((a, b) => (b.rating || 0) - (a.rating || 0));
   const sortedBySessions = [...users].sort((a, b) => (b.sessionsCompleted || 0) - (a.sessionsCompleted || 0));
-  const displayUsers = tab === "sessions" ? sortedBySessions : sortedByRating;
+  const sortedByStreak = [...users].sort((a, b) => (b.streak || 0) - (a.streak || 0));
+
+  const displayUsers = tab === "sessions"
+    ? sortedBySessions
+    : tab === "rating"
+    ? sortedByRating
+    : sortedByStreak;
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
@@ -90,8 +159,23 @@ export default function Leaderboard() {
           </p>
         </div>
 
+        {/* My streak banner — only show if streak > 0 */}
+        {myStreak > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl px-5 py-4 flex items-center gap-3">
+            <span className="text-3xl">🔥</span>
+            <div>
+              <p className="font-semibold text-orange-700">
+                You're on a {myStreak}-week streak!
+              </p>
+              <p className="text-orange-500 text-xs mt-0.5">
+                Complete a session this week to keep it going
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Top 3 Podium */}
-        {users.length >= 3 && (
+        {displayUsers.length >= 3 && (
           <div className="flex items-end justify-center gap-4 py-6">
 
             {/* 2nd Place */}
@@ -104,18 +188,20 @@ export default function Leaderboard() {
                   {displayUsers[1]?.name?.split(" ")[0]}
                 </div>
                 <div className="text-xs text-gray-400">
-                  {displayUsers[1]?.sessionsCompleted || 0} sessions
+                  {tab === "streak"
+                    ? `${displayUsers[1]?.streak || 0}w streak`
+                    : tab === "rating"
+                    ? `⭐ ${displayUsers[1]?.rating || 0}`
+                    : `${displayUsers[1]?.sessionsCompleted || 0} sessions`}
                 </div>
               </div>
-              <div className="bg-gray-200 w-20 h-16 rounded-t-xl flex items-center justify-center text-2xl">
-                🥈
-              </div>
+              <div className="bg-gray-200 w-20 h-16 rounded-t-xl flex items-center justify-center text-2xl">🥈</div>
             </div>
 
             {/* 1st Place */}
             <div className="flex flex-col items-center gap-2">
               <div className="text-2xl">👑</div>
-              <div className="w-18 h-18 rounded-full bg-yellow-200 flex items-center justify-center text-yellow-700 font-bold text-2xl border-4 border-yellow-400 w-16 h-16">
+              <div className="w-16 h-16 rounded-full bg-yellow-200 flex items-center justify-center text-yellow-700 font-bold text-2xl border-4 border-yellow-400">
                 {displayUsers[0]?.name?.charAt(0)}
               </div>
               <div className="text-center">
@@ -123,12 +209,14 @@ export default function Leaderboard() {
                   {displayUsers[0]?.name?.split(" ")[0]}
                 </div>
                 <div className="text-xs text-gray-400">
-                  {displayUsers[0]?.sessionsCompleted || 0} sessions
+                  {tab === "streak"
+                    ? `${displayUsers[0]?.streak || 0}w streak`
+                    : tab === "rating"
+                    ? `⭐ ${displayUsers[0]?.rating || 0}`
+                    : `${displayUsers[0]?.sessionsCompleted || 0} sessions`}
                 </div>
               </div>
-              <div className="bg-yellow-300 w-20 h-24 rounded-t-xl flex items-center justify-center text-2xl">
-                🥇
-              </div>
+              <div className="bg-yellow-300 w-20 h-24 rounded-t-xl flex items-center justify-center text-2xl">🥇</div>
             </div>
 
             {/* 3rd Place */}
@@ -141,99 +229,115 @@ export default function Leaderboard() {
                   {displayUsers[2]?.name?.split(" ")[0]}
                 </div>
                 <div className="text-xs text-gray-400">
-                  {displayUsers[2]?.sessionsCompleted || 0} sessions
+                  {tab === "streak"
+                    ? `${displayUsers[2]?.streak || 0}w streak`
+                    : tab === "rating"
+                    ? `⭐ ${displayUsers[2]?.rating || 0}`
+                    : `${displayUsers[2]?.sessionsCompleted || 0} sessions`}
                 </div>
               </div>
-              <div className="bg-orange-200 w-20 h-12 rounded-t-xl flex items-center justify-center text-2xl">
-                🥉
-              </div>
+              <div className="bg-orange-200 w-20 h-12 rounded-t-xl flex items-center justify-center text-2xl">🥉</div>
             </div>
 
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs — now 3 tabs */}
         <div className="flex gap-2 bg-white rounded-xl p-1 shadow-sm w-fit mx-auto">
           <button
             onClick={() => setTab("sessions")}
-            className={`px-5 py-2 rounded-lg text-sm font-medium transition ${
-              tab === "sessions"
-                ? "bg-indigo-600 text-white"
-                : "text-gray-500 hover:text-indigo-600"
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+              tab === "sessions" ? "bg-indigo-600 text-white" : "text-gray-500 hover:text-indigo-600"
             }`}
           >
             By Sessions
           </button>
           <button
             onClick={() => setTab("rating")}
-            className={`px-5 py-2 rounded-lg text-sm font-medium transition ${
-              tab === "rating"
-                ? "bg-yellow-500 text-white"
-                : "text-gray-500 hover:text-yellow-600"
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+              tab === "rating" ? "bg-yellow-500 text-white" : "text-gray-500 hover:text-yellow-600"
             }`}
           >
             By Rating
+          </button>
+          <button
+            onClick={() => setTab("streak")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+              tab === "streak" ? "bg-orange-500 text-white" : "text-gray-500 hover:text-orange-600"
+            }`}
+          >
+            🔥 Streaks
           </button>
         </div>
 
         {/* Full List */}
         <div className="flex flex-col gap-3">
-          {displayUsers.map((user, index) => (
-            <div
-              key={user.uid}
-              className={`rounded-2xl border p-4 flex items-center gap-4 transition ${getRankColor(index)} ${
-                user.uid === myUid ? "ring-2 ring-indigo-400" : ""
-              }`}
-            >
-              {/* Rank */}
-              <div className="text-2xl w-10 text-center font-bold">
-                {getMedal(index)}
-              </div>
+          {displayUsers.map((user, index) => {
+            const streakInfo = getStreakLabel(user.streak);
+            return (
+              <div
+                key={user.uid}
+                className={`rounded-2xl border p-4 flex items-center gap-4 transition ${getRankColor(index)} ${
+                  user.uid === myUid ? "ring-2 ring-indigo-400" : ""
+                }`}
+              >
+                {/* Rank */}
+                <div className="text-2xl w-10 text-center font-bold">
+                  {getMedal(index)}
+                </div>
 
-              {/* Avatar */}
-              <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg flex-shrink-0">
-                {user.name?.charAt(0)}
-              </div>
-
-              {/* Info */}
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-800">{user.name}</span>
-                  {user.uid === myUid && (
-                    <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">
-                      You
-                    </span>
+                {/* Avatar */}
+                <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg flex-shrink-0 overflow-hidden">
+                  {user.photoBase64 ? (
+                    <img src={user.photoBase64} alt={user.name} className="w-full h-full object-cover" />
+                  ) : (
+                    user.name?.charAt(0)
                   )}
                 </div>
-                <div className="text-xs text-gray-400 mt-0.5">{user.college}</div>
 
-                {/* Badges */}
-                {user.badges?.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {user.badges.map(badge => (
-                      <span
-                        key={badge}
-                        className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full"
-                      >
-                        🏅 {badge}
+                {/* Info */}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-gray-800">{user.name}</span>
+                    {user.uid === myUid && (
+                      <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">You</span>
+                    )}
+                    {/* Streak badge */}
+                    {streakInfo && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${streakInfo.color}`}>
+                        {streakInfo.label}
                       </span>
-                    ))}
+                    )}
                   </div>
-                )}
-              </div>
+                  <div className="text-xs text-gray-400 mt-0.5">{user.college}</div>
 
-              {/* Stats */}
-              <div className="text-right flex-shrink-0">
-                <div className="text-lg font-bold text-indigo-600">
-                  {user.sessionsCompleted || 0}
-                  <span className="text-xs font-normal text-gray-400 ml-1">sessions</span>
+                  {/* Badges */}
+                  {user.badges?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {user.badges.map(badge => (
+                        <span key={badge} className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full">
+                          🏅 {badge}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="text-sm text-yellow-500 font-medium">
-                  ⭐ {user.rating > 0 ? user.rating : "New"}
+
+                {/* Stats */}
+                <div className="text-right flex-shrink-0">
+                  <div className="text-lg font-bold text-indigo-600">
+                    {tab === "streak"
+                      ? <>{user.streak || 0}<span className="text-xs font-normal text-gray-400 ml-1">weeks</span></>
+                      : <>{user.sessionsCompleted || 0}<span className="text-xs font-normal text-gray-400 ml-1">sessions</span></>
+                    }
+                  </div>
+                  <div className="text-sm text-yellow-500 font-medium">
+                    ⭐ {user.rating > 0 ? user.rating : "New"}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Your Rank */}
