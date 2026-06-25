@@ -255,7 +255,8 @@ export default function Chat() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+          <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3"
+style={{ minHeight: 0 }}>
             {messages.length === 0 ? (
               <div className="text-center text-gray-400 mt-16">
                 <p className="text-sm">No messages yet</p>
@@ -330,7 +331,7 @@ export default function Chat() {
   );
 
   return (
-    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* Navbar */}
       <nav className="bg-white shadow-sm px-4 py-4 flex items-center justify-between flex-shrink-0">
@@ -356,7 +357,7 @@ export default function Chat() {
       </nav>
 
       {/* Desktop layout: side by side */}
-      <div className="hidden md:flex flex-1 min-h-0 max-w-6xl mx-auto w-full px-4 py-6 gap-4 overflow-hidden">
+      <div className="hidden md:flex flex-1 min-h-0 max-w-6xl mx-auto w-full px-4 py-6 gap-4" style={{ overflow: 'hidden', minHeight: 0 }}>
         {Sidebar}
         {MessageArea}
       </div>
