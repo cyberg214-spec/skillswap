@@ -139,11 +139,9 @@ export default function PublicProfile() {
     setReportSubmitting(false);
   }
 
-  // ---- NEW: Share profile link ----
   async function handleShare() {
     const url = `${window.location.origin}/profile/${uid}`;
     try {
-      // Use native share sheet on mobile if available
       if (navigator.share) {
         await navigator.share({
           title: `${profile.name} on SkillSwap`,
@@ -151,12 +149,10 @@ export default function PublicProfile() {
           url,
         });
       } else {
-        // Fallback: copy to clipboard
         await navigator.clipboard.writeText(url);
         showToast("Profile link copied! 🔗");
       }
     } catch {
-      // If clipboard also fails, show the URL in toast
       showToast("Profile link copied! 🔗");
     }
   }
@@ -170,16 +166,16 @@ export default function PublicProfile() {
   }
 
   function getLevelColor(level) {
-    if (level === "Expert") return "bg-red-500/20 text-red-300 border border-red-500/30";
-    if (level === "Intermediate") return "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30";
-    return "bg-green-500/20 text-green-300 border border-green-500/30";
+    if (level === "Expert") return "bg-red-100 text-red-600 border border-red-200";
+    if (level === "Intermediate") return "bg-yellow-100 text-yellow-600 border border-yellow-200";
+    return "bg-green-100 text-green-600 border border-green-200";
   }
 
   function StarRating({ rating }) {
     return (
       <div className="flex gap-0.5">
         {[1, 2, 3, 4, 5].map((s) => (
-          <span key={s} className={s <= rating ? "text-yellow-400" : "text-white/20"}>★</span>
+          <span key={s} className={s <= rating ? "text-yellow-400" : "text-gray-300"}>★</span>
         ))}
       </div>
     );
@@ -200,8 +196,10 @@ export default function PublicProfile() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-white text-xl animate-pulse">Loading profile...</div>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-xl px-10 py-8 text-indigo-700 font-semibold text-lg animate-pulse">
+          Loading profile...
+        </div>
       </div>
     );
   }
@@ -211,71 +209,71 @@ export default function PublicProfile() {
   const isOwnProfile = currentUser?.uid === uid;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 py-10 px-4">
+
       {/* Navbar */}
-      <nav className="bg-white/10 backdrop-blur-sm border-b border-white/20 px-6 py-4">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <button onClick={() => router.back()} className="text-white/70 hover:text-white text-sm transition">
-            ← Back
-          </button>
-          <h1 className="text-white font-bold">👤 Profile</h1>
-          {/* Share button in navbar */}
-          <button
-            onClick={handleShare}
-            className="text-white/70 hover:text-white text-sm transition flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-white/10"
-          >
-            🔗 Share
-          </button>
-        </div>
-      </nav>
+      <div className="max-w-2xl mx-auto mb-6 flex items-center justify-between">
+        <button
+          onClick={() => router.back()}
+          className="text-white/80 hover:text-white text-sm transition flex items-center gap-1"
+        >
+          ← Back
+        </button>
+        <h1 className="text-white font-bold text-lg">👤 Profile</h1>
+        <button
+          onClick={handleShare}
+          className="text-white/80 hover:text-white text-sm transition flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-white/10"
+        >
+          🔗 Share
+        </button>
+      </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-2xl mx-auto flex flex-col gap-5">
 
-        {/* Profile header */}
-        <div className="bg-white/10 backdrop-blur-sm rounded-3xl p-8 border border-white/20">
+        {/* Profile Header Card */}
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
             {profile.photoBase64 ? (
               <img
                 src={profile.photoBase64}
                 alt={profile.name}
-                className="w-24 h-24 rounded-full object-cover border-4 border-purple-400 shrink-0"
+                className="w-24 h-24 rounded-full object-cover border-4 border-indigo-200 shrink-0"
               />
             ) : (
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-4xl shrink-0">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-4xl shrink-0">
                 {profile.name?.charAt(0)}
               </div>
             )}
 
             <div className="flex-1 text-center sm:text-left">
-              <h2 className="text-white text-2xl font-bold">{profile.name}</h2>
-              <p className="text-purple-300 mt-1">🏫 {profile.college}</p>
+              <h2 className="text-gray-800 text-2xl font-bold">{profile.name}</h2>
+              <p className="text-indigo-500 mt-1 text-sm font-medium">🏫 {profile.college}</p>
               {avgRating && (
                 <div className="flex items-center gap-2 mt-2 justify-center sm:justify-start">
                   <StarRating rating={Math.round(avgRating)} />
-                  <span className="text-yellow-400 font-semibold">{avgRating}</span>
-                  <span className="text-white/40 text-sm">({reviews.length} review{reviews.length !== 1 ? "s" : ""})</span>
+                  <span className="text-yellow-500 font-semibold">{avgRating}</span>
+                  <span className="text-gray-400 text-sm">({reviews.length} review{reviews.length !== 1 ? "s" : ""})</span>
                 </div>
               )}
               {profile.bio && (
-                <p className="text-white/70 mt-3 text-sm leading-relaxed">{profile.bio}</p>
+                <p className="text-gray-500 mt-3 text-sm leading-relaxed">{profile.bio}</p>
               )}
             </div>
           </div>
 
-          {/* Action buttons */}
+          {/* Action Buttons */}
           <div className="mt-6 flex flex-col gap-3">
             {isOwnProfile ? (
               <>
                 <button
                   onClick={() => router.push("/edit-profile")}
-                  className="w-full bg-white/10 hover:bg-white/20 text-white py-3 rounded-2xl font-medium transition border border-white/20"
+                  className="w-full border border-indigo-300 text-indigo-600 hover:bg-indigo-50 py-3 rounded-xl font-medium transition text-sm"
                 >
                   ✏️ Edit Your Profile
                 </button>
-                {/* Share own profile */}
                 <button
                   onClick={handleShare}
-                  className="w-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 py-3 rounded-2xl font-medium transition border border-purple-500/30"
+                  className="w-full border border-purple-300 text-purple-600 hover:bg-purple-50 py-3 rounded-xl font-medium transition text-sm"
                 >
                   🔗 Share My Profile
                 </button>
@@ -283,14 +281,14 @@ export default function PublicProfile() {
             ) : (
               <>
                 {alreadyRequested ? (
-                  <div className="w-full bg-green-500/20 text-green-300 py-3 rounded-2xl font-medium text-center border border-green-500/30">
+                  <div className="w-full bg-green-50 text-green-600 py-3 rounded-xl font-medium text-center border border-green-200 text-sm">
                     ✅ Request Already Sent
                   </div>
                 ) : (
                   <button
                     onClick={handleSendRequest}
                     disabled={requesting}
-                    className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white py-3 rounded-2xl font-medium transition disabled:opacity-50"
+                    className="w-full bg-indigo-700 hover:bg-indigo-800 text-white py-3 rounded-xl font-semibold transition disabled:opacity-50 text-sm"
                   >
                     {requesting ? "Sending..." : "🤝 Send Skill Swap Request"}
                   </button>
@@ -299,17 +297,17 @@ export default function PublicProfile() {
                 <div className="flex gap-3">
                   <button
                     onClick={handleBlock}
-                    className={`flex-1 py-2.5 rounded-2xl text-sm font-medium transition border ${
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition border ${
                       isBlocked
-                        ? "bg-white/10 text-white/60 border-white/20 hover:bg-white/20"
-                        : "bg-red-500/10 text-red-300 border-red-500/30 hover:bg-red-500/20"
+                        ? "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
+                        : "bg-red-50 text-red-500 border-red-200 hover:bg-red-100"
                     }`}
                   >
                     {isBlocked ? "🔓 Unblock User" : "🚫 Block User"}
                   </button>
                   <button
                     onClick={() => setShowReportModal(true)}
-                    className="flex-1 py-2.5 rounded-2xl text-sm font-medium transition border bg-orange-500/10 text-orange-300 border-orange-500/30 hover:bg-orange-500/20"
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium transition border bg-orange-50 text-orange-500 border-orange-200 hover:bg-orange-100"
                   >
                     ⚠️ Report User
                   </button>
@@ -319,13 +317,16 @@ export default function PublicProfile() {
           </div>
         </div>
 
-        {/* Teaching skills */}
+        {/* Teaching Skills */}
         {teachSkills.length > 0 && (
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
-            <h3 className="text-white font-semibold text-lg mb-4">🎓 Can Teach</h3>
+          <div className="bg-white rounded-2xl shadow-2xl p-6">
+            <h3 className="text-indigo-700 font-semibold text-base mb-4">🎓 Skills I Can Teach</h3>
             <div className="flex flex-wrap gap-2">
               {teachSkills.map((s, i) => (
-                <span key={i} className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl text-sm flex items-center gap-1.5">
+                <span
+                  key={i}
+                  className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5"
+                >
                   {s.skill}
                   <span className={`text-xs px-1.5 py-0.5 rounded-full ${getLevelColor(s.level)}`}>
                     {s.level}
@@ -336,13 +337,16 @@ export default function PublicProfile() {
           </div>
         )}
 
-        {/* Learning skills */}
+        {/* Learning Skills */}
         {learnSkills.length > 0 && (
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
-            <h3 className="text-white font-semibold text-lg mb-4">📚 Wants to Learn</h3>
+          <div className="bg-white rounded-2xl shadow-2xl p-6">
+            <h3 className="text-purple-700 font-semibold text-base mb-4">📚 Skills I Want to Learn</h3>
             <div className="flex flex-wrap gap-2">
               {learnSkills.map((skill, i) => (
-                <span key={i} className="bg-pink-500/20 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-xl text-sm">
+                <span
+                  key={i}
+                  className="bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-full text-sm"
+                >
                   {skill}
                 </span>
               ))}
@@ -351,33 +355,33 @@ export default function PublicProfile() {
         )}
 
         {/* Reviews */}
-        <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
-          <h3 className="text-white font-semibold text-lg mb-4">
-            ⭐ Reviews {reviews.length > 0 && `(${reviews.length})`}
+        <div className="bg-white rounded-2xl shadow-2xl p-6">
+          <h3 className="text-gray-700 font-semibold text-base mb-4">
+            ⭐ Reviews {reviews.length > 0 && <span className="text-gray-400 font-normal text-sm">({reviews.length})</span>}
           </h3>
           {reviews.length === 0 ? (
-            <p className="text-white/40 text-sm text-center py-4">No reviews yet</p>
+            <p className="text-gray-400 text-sm text-center py-4">No reviews yet</p>
           ) : (
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               {reviews.map((r) => (
-                <div key={r.id} className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                <div key={r.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-sm font-bold">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-400 flex items-center justify-center text-white text-sm font-bold">
                         {r.reviewerName?.charAt(0) || "?"}
                       </div>
-                      <span className="text-white/80 text-sm font-medium">{r.reviewerName || "Anonymous"}</span>
+                      <span className="text-gray-700 text-sm font-medium">{r.reviewerName || "Anonymous"}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <StarRating rating={r.rating} />
-                      <span className="text-white/30 text-xs">{timeAgo(r.createdAt)}</span>
+                      <span className="text-gray-400 text-xs">{timeAgo(r.createdAt)}</span>
                     </div>
                   </div>
                   {r.comment && (
-                    <p className="text-white/60 text-sm leading-relaxed mt-2">{r.comment}</p>
+                    <p className="text-gray-500 text-sm leading-relaxed mt-2">{r.comment}</p>
                   )}
                   {r.skillExchanged && (
-                    <p className="text-purple-400 text-xs mt-2">Skill: {r.skillExchanged}</p>
+                    <p className="text-indigo-400 text-xs mt-2">Skill: {r.skillExchanged}</p>
                   )}
                 </div>
               ))}
@@ -389,11 +393,11 @@ export default function PublicProfile() {
 
       {/* Report Modal */}
       {showReportModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center px-4">
-          <div className="bg-slate-800 rounded-3xl p-6 w-full max-w-sm border border-white/20">
-            <h3 className="text-white font-bold text-lg mb-4">⚠️ Report User</h3>
-            <p className="text-white/60 text-sm mb-4">
-              Why are you reporting <span className="text-white font-medium">{profile.name}</span>?
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="text-gray-800 font-bold text-lg mb-1">⚠️ Report User</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Why are you reporting <span className="text-gray-700 font-medium">{profile.name}</span>?
             </p>
             <div className="flex flex-col gap-2 mb-4">
               {["Inappropriate behavior", "Spam or fake profile", "Harassment", "Misleading skills", "Other"].map((reason) => (
@@ -402,8 +406,8 @@ export default function PublicProfile() {
                   onClick={() => setReportReason(reason)}
                   className={`text-left px-4 py-2.5 rounded-xl text-sm transition border ${
                     reportReason === reason
-                      ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
-                      : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10"
+                      ? "bg-orange-50 text-orange-600 border-orange-300"
+                      : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
                   }`}
                 >
                   {reason}
@@ -413,7 +417,7 @@ export default function PublicProfile() {
             <div className="flex gap-3">
               <button
                 onClick={() => { setShowReportModal(false); setReportReason(""); }}
-                className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2.5 rounded-xl text-sm transition"
+                className="flex-1 border border-gray-200 hover:bg-gray-50 text-gray-500 py-2.5 rounded-xl text-sm transition"
               >
                 Cancel
               </button>
