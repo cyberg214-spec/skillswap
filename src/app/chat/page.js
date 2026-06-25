@@ -172,7 +172,7 @@ export default function Chat() {
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {chatRooms.length === 0 ? (
           <div className="text-center py-16 text-gray-400 px-4">
             <div className="text-4xl mb-3">💬</div>
@@ -212,7 +212,7 @@ export default function Chat() {
 
   // ---- Message area ----
   const MessageArea = (
-    <div className="flex-1 bg-white flex flex-col overflow-hidden border border-gray-100
+    <div className="flex-1 min-h-0 bg-white flex flex-col overflow-hidden border border-gray-100
       md:rounded-2xl md:shadow-sm
       rounded-none shadow-none
     ">
@@ -225,7 +225,7 @@ export default function Chat() {
       ) : (
         <>
           {/* Chat Header */}
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3 flex-shrink-0">
             {/* Back button — mobile only */}
             <button
               onClick={backToList}
@@ -255,7 +255,7 @@ export default function Chat() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-3">
             {messages.length === 0 ? (
               <div className="text-center text-gray-400 mt-16">
                 <p className="text-sm">No messages yet</p>
@@ -308,7 +308,7 @@ export default function Chat() {
           </div>
 
           {/* Message Input */}
-          <div className="px-4 py-3 border-t border-gray-100 flex gap-2 items-center">
+          <div className="px-4 py-3 border-t border-gray-100 flex gap-2 items-center flex-shrink-0">
             <input
               value={newMessage}
               onChange={handleTyping}
@@ -330,10 +330,10 @@ export default function Chat() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
 
       {/* Navbar */}
-      <nav className="bg-white shadow-sm px-4 py-4 flex items-center justify-between">
+      <nav className="bg-white shadow-sm px-4 py-4 flex items-center justify-between flex-shrink-0">
         <div
           onClick={() => router.push("/dashboard")}
           className="text-xl font-bold text-indigo-700 cursor-pointer"
@@ -356,13 +356,13 @@ export default function Chat() {
       </nav>
 
       {/* Desktop layout: side by side */}
-      <div className="hidden md:flex flex-1 max-w-6xl mx-auto w-full px-4 py-6 gap-4 h-[calc(100vh-72px)]">
+      <div className="hidden md:flex flex-1 min-h-0 max-w-6xl mx-auto w-full px-4 py-6 gap-4 overflow-hidden">
         {Sidebar}
         {MessageArea}
       </div>
 
       {/* Mobile layout: one view at a time */}
-      <div className="md:hidden flex-1 flex flex-col h-[calc(100vh-60px)]">
+      <div className="md:hidden flex-1 min-h-0 flex flex-col overflow-hidden">
         {mobileView === "list" ? Sidebar : MessageArea}
       </div>
 
